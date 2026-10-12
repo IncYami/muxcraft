@@ -498,11 +498,13 @@ fn extract_audio(
         "-dn".into(),
     ]);
     if let Some(cut) = cut {
+        // FFmpeg resets input timestamps to the container start before atrim runs.
         args.extend([
             "-af".into(),
             format!(
                 "atrim=start={:.9}:end={:.9},asetpts=PTS-STARTPTS",
-                cut.start_seconds, cut.end_seconds
+                cut_relative(cut),
+                cut.end_seconds - cut.source_start_seconds
             ),
         ]);
     }

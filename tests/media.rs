@@ -88,6 +88,8 @@ fn cuts_shared_m2ts_and_verifies_final_tracks() {
             "0",
             "-c:a",
             "ac3",
+            "-output_ts_offset",
+            "4219",
             "-f",
             "mpegts",
             source.to_str().unwrap(),
@@ -210,7 +212,34 @@ fn cuts_shared_m2ts_and_verifies_final_tracks() {
         );
         result.stdout
     };
-    let whole = raw(&source, Some((keyframes[0], end as f64 / 45000.0)));
+    let source_start = {
+        let output = Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-show_entries",
+                "format=start_time",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+            ])
+            .arg(&source)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .trim()
+            .parse::<f64>()
+            .unwrap()
+    };
+    assert!(source_start > 4200.0);
+    let whole = raw(
+        &source,
+        Some((
+            keyframes[0] - source_start,
+            end as f64 / 45000.0 - source_start,
+        )),
+    );
     let mut joined = raw(&base.join("out/Split.01.mkv"), None);
     joined.extend(raw(&base.join("out/Split.02.mkv"), None));
     let mismatch = joined.iter().zip(&whole).position(|(a, b)| a != b);
