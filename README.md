@@ -25,7 +25,7 @@ The repository also contains `default.nix`. Add it to `environment.systemPackage
 let
   muxcraftSource = builtins.fetchGit {
     url = "https://github.com/IncYami/muxcraft.git";
-    rev = "<full-commit-sha>";
+    ref = "main";
   };
 in {
   environment.systemPackages = [
@@ -34,7 +34,7 @@ in {
 }
 ```
 
-Replace `<full-commit-sha>` with a commit from this repository and run `sudo nixos-rebuild switch`. Pinning the commit keeps rebuilds reproducible; update it when you want a newer version. This builds against your NixOS `pkgs` and adds FFmpeg, FLAC, MKVToolNix, and CA certificates through the package wrapper. You can also test the local package with `nix-build default.nix`.
+Run `sudo nixos-rebuild switch` to install or update muxcraft. Nix fetches the current `main` commit when it refreshes its Git cache, so future rebuilds can pick up new commits without editing this configuration. This builds against your NixOS `pkgs` and adds FFmpeg, FLAC, MKVToolNix, and CA certificates through the package wrapper. You can also test the local package with `nix-build default.nix`.
 
 ### Release archives
 
