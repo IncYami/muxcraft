@@ -51,7 +51,7 @@ jobs:
       MUXCRAFT_BUILD_DATE: ${{ needs.prepare.outputs.date }}
       MUXCRAFT_BUILD_SHA: ${{ needs.prepare.outputs.revision }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Use current stable Rust
         run: rustup update stable
       - name: Test library
@@ -78,7 +78,7 @@ jobs:
         run: |
           $archive = "muxcraft-${{ needs.prepare.outputs.version }}-${{ matrix.target }}.zip"
           Compress-Archive -Path target/release/muxcraft.exe -DestinationPath $archive
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: muxcraft-${{ matrix.target }}
           path: |
@@ -93,7 +93,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: muxcraft-*
           merge-multiple: true
