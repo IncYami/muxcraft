@@ -16,6 +16,30 @@ The package adds FFmpeg, ffprobe, FLAC, and MKVToolNix to the application's runt
 nix run github:IncYami/muxcraft -- my-batch.toml --mode plan --no-check
 ```
 
+### NixOS without flakes
+
+The repository also contains `default.nix`. Add it to `environment.systemPackages` in `configuration.nix` without enabling flakes or submitting the package to Nixpkgs:
+
+```nix
+{ pkgs, ... }:
+let
+  muxcraftSource = builtins.fetchGit {
+    url = "https://github.com/IncYami/muxcraft.git";
+    rev = "<full-commit-sha>";
+  };
+in {
+  environment.systemPackages = [
+    (import muxcraftSource { inherit pkgs; })
+  ];
+}
+```
+
+Replace `<full-commit-sha>` with a commit from this repository and run `sudo nixos-rebuild switch`. Pinning the commit keeps rebuilds reproducible; update it when you want a newer version. This builds against your NixOS `pkgs` and adds FFmpeg, FLAC, MKVToolNix, and CA certificates through the package wrapper. You can also test the local package with `nix-build default.nix`.
+
+### Release archives
+
+Pushing a `v*` tag builds Linux x86_64, Windows x86_64, macOS x86_64, and macOS arm64 binaries and publishes them under [GitHub Releases](https://github.com/IncYami/muxcraft/releases) with a `SHA256SUMS` file. A manual workflow run builds the same archives without publishing a release. The archives contain muxcraft only: install FFmpeg, ffprobe, FLAC, and MKVToolNix separately and make them available on `PATH` (or configure `[tools]`). The Nix package includes these tools in its runtime path.
+
 ## Build from source
 
 Building requires Rust and Cargo. Running requires **FFmpeg, ffprobe, FLAC, and MKVToolNix** on `PATH`, or explicit paths under `[tools]`. The binary does not require Python, VapourSynth, FontCollector, or installed Rust crates on the machine where it runs. Media conversions still use the external tools; rewriting the orchestration in Rust does not make FLAC encoding faster.
