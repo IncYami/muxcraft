@@ -33,7 +33,7 @@ digraph ChapterCutFlow {
     pgs_cut [label="Rust: select complete display sets\nand rebase timestamps", fillcolor="#f3eaff"];
     pgs -> pgs_cut;
   }
-  chapter [label="Rust: generate episode-relative\nchapters.ogm, if configured", fillcolor="#fff2e2"];
+  chapter [label="Rust: generate episode-relative\nchapters.txt, if configured", fillcolor="#fff2e2"];
   text [label="Rust: prepare ASS/SRT and\ncollect fonts, if configured", fillcolor="#fff2e2"];
   mux [label="mkvmerge: combine prepared tracks,\nchapters, fonts and tags", fillcolor="#dceeff"];
   partial [label="Temporary final MKV"];

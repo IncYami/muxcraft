@@ -1045,7 +1045,7 @@ impl Config {
             if let Some(ChapterSpec::File(path)) = &ep.chapters {
                 ensure!(!path.is_empty(), "Empty chapter path for episode {}", ep.id);
                 ensure!(
-                    ["ogm", "xml"].contains(
+                    ["txt", "xml"].contains(
                         &Path::new(path)
                             .extension()
                             .and_then(|s| s.to_str())
@@ -1053,7 +1053,7 @@ impl Config {
                             .to_lowercase()
                             .as_str()
                     ),
-                    "Chapter file for episode {} must be OGM or XML",
+                    "Chapter file for episode {} must be TXT or XML",
                     ep.id
                 );
             }

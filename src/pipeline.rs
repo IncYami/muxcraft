@@ -849,7 +849,7 @@ fn chapter_data(
             }
             ensure!(
                 plan.sources.len() == 1,
-                "Episode {} uses multiple source clips; use explicit frame chapters or an OGM/XML chapter file",
+                "Episode {} uses multiple source clips; use explicit frame chapters or a TXT/XML chapter file",
                 ep.id
             );
             let video = &plan.tracks[0];
@@ -1280,7 +1280,7 @@ fn run_episode(
         ];
         if let Some(chapter) = chapter_data(cfg, base, ep, plan)? {
             let path = if let Some(content) = chapter.content {
-                let path = plan.work.join("chapters.ogm");
+                let path = plan.work.join("chapters.txt");
                 std::fs::write(&path, content)?;
                 path
             } else {

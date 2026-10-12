@@ -396,7 +396,7 @@ fn bdmv_chapters_use_video_duration_for_terminal_mark_and_audit() {
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    let chapters = std::fs::read_to_string(base.join("work/muxcraft-01/chapters.ogm")).unwrap();
+    let chapters = std::fs::read_to_string(base.join("work/muxcraft-01/chapters.txt")).unwrap();
     assert!(chapters.contains("CHAPTER03=00:00:08.000"));
     let audit: serde_json::Value =
         serde_json::from_slice(&std::fs::read(base.join("out/ChapterTest.01.audit.json")).unwrap())
@@ -486,7 +486,7 @@ fn real_batch_flac_copy_subtitles_chapters_flags_and_audit() {
     )
     .unwrap();
     std::fs::write(
-        base.join("chapters.ogm"),
+        base.join("chapters.txt"),
         "CHAPTER01=00:00:00.000\nCHAPTER01NAME=Start\nCHAPTER02=00:00:01.000\nCHAPTER02NAME=Middle\n",
     )
     .unwrap();
@@ -505,7 +505,7 @@ enabled=false
 '02'='source.mkv'
 [chapters]
 '01'=[{frame=0,name='Start & <one>'},{frame=24,name='End'}]
-'02'='chapters.ogm'
+'02'='chapters.txt'
 [VideoTrack.01]
 source='{episodes}'
 [VideoTrack.02]
@@ -725,7 +725,7 @@ fn video_source_can_keep_audio_subtitles_attachments_and_set_colour() {
     .unwrap();
     std::fs::write(base.join("note.txt"), "attachment").unwrap();
     std::fs::write(
-        base.join("chapters.ogm"),
+        base.join("chapters.txt"),
         "CHAPTER01=00:00:00.000\nCHAPTER01NAME=Source chapter\n",
     )
     .unwrap();
@@ -762,7 +762,7 @@ fn video_source_can_keep_audio_subtitles_attachments_and_set_colour() {
             "-o",
             premux.to_str().unwrap(),
             "--chapters",
-            base.join("chapters.ogm").to_str().unwrap(),
+            base.join("chapters.txt").to_str().unwrap(),
             "--global-tags",
             base.join("tags.xml").to_str().unwrap(),
             "--attachment-mime-type",

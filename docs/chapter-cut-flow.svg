@@ -195,7 +195,7 @@
 <title>chapter</title>
 <path fill="#fff2e2" stroke="#8297b0" d="M444.24,-945.25C444.24,-945.25 269.76,-945.25 269.76,-945.25 263.76,-945.25 257.76,-939.25 257.76,-933.25 257.76,-933.25 257.76,-914.41 257.76,-914.41 257.76,-908.41 263.76,-902.41 269.76,-902.41 269.76,-902.41 444.24,-902.41 444.24,-902.41 450.24,-902.41 456.24,-908.41 456.24,-914.41 456.24,-914.41 456.24,-933.25 456.24,-933.25 456.24,-939.25 450.24,-945.25 444.24,-945.25"/>
 <text xml:space="preserve" text-anchor="middle" x="357" y="-926.88" font-family="DejaVu Sans" font-size="11.00">Rust: generate episode&#45;relative</text>
-<text xml:space="preserve" text-anchor="middle" x="357" y="-913.38" font-family="DejaVu Sans" font-size="11.00">chapters.ogm, if configured</text>
+<text xml:space="preserve" text-anchor="middle" x="357" y="-913.38" font-family="DejaVu Sans" font-size="11.00">chapters.txt, if configured</text>
 </g>
 <!-- interval&#45;&gt;chapter -->
 <g id="edge17" class="edge">

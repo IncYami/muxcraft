@@ -23,7 +23,7 @@ flowchart TD
     PC --> PS["Episode SUP"]
 
     INT --> CH{"[chapters] configured?"}
-    CH -- Yes --> CG["Rust: generate episode-relative chapters.ogm"]
+    CH -- Yes --> CG["Rust: generate episode-relative chapters.txt"]
 
     VG -- Yes --> MX["mkvmerge: combine video, FLAC, subtitles, fonts, chapters and tags"]
     FL --> MX

@@ -502,7 +502,7 @@ DISC_ID={ 'Disc A'=['1','10'], 'Disc B'=['2','3'] }
 '1'=[]
 '10'=['Opening']
 '2'=[{frame=0,name='First'},{frame=24,name='Second'}]
-'3'='chapters.ogm'
+'3'='chapters.txt'
 [VideoTrack.01]
 source='{episodes}'
 [mux]
@@ -523,7 +523,7 @@ source='{episodes}'
         matches!(cfg.episodes[2].chapters, Some(ChapterSpec::Frames(ref frames)) if frames.len() == 2)
     );
     assert!(
-        matches!(cfg.episodes[3].chapters, Some(ChapterSpec::File(ref file)) if file == "chapters.ogm")
+        matches!(cfg.episodes[3].chapters, Some(ChapterSpec::File(ref file)) if file == "chapters.txt")
     );
     let plans = cfg.plan(dir.path(), false).unwrap();
     assert_eq!(plans[0].tracks[0].name, "Disc A");
@@ -533,8 +533,8 @@ source='{episodes}'
     for invalid in [
         input.replace("'Disc B'=['2','3']", "'Disc B'=['2','3','99']"),
         input.replace("'Disc B'=['2','3']", "'Disc B'=['2','3','1']"),
-        input.replace("'3'='chapters.ogm'", "'99'='chapters.ogm'"),
-        input.replace("'3'='chapters.ogm'", "'3'='chapters.txt'"),
+        input.replace("'3'='chapters.txt'", "'99'='chapters.txt'"),
+        input.replace("'3'='chapters.txt'", "'3'='chapters.ogm'"),
         input.replace("'1'='one.mkv'", "'bad.id'='one.mkv'"),
         input.replace("[VideoTrack.01]", "[video]"),
         input.replace("[VideoTrack.01]", "[VideoTrack.01]\nid='video'"),
@@ -568,7 +568,7 @@ source='{episodes}'
             .plan(dir.path(), false)
             .is_err()
     );
-    std::fs::write(&path, input.replace("chapters.ogm", "chapters.xml")).unwrap();
+    std::fs::write(&path, input.replace("chapters.txt", "chapters.xml")).unwrap();
     assert!(Config::load(&path).is_ok());
 }
 
