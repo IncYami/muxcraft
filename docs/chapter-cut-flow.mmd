@@ -9,13 +9,13 @@ flowchart TD
     G -- No --> ERR["Stop this episode and record the error"]
     G -- Yes --> INT["Resolved episode interval"]
 
-    INT --> V["ffmpeg: copy the exact frame count from M2TS to a source-named MKV"]
-    V --> VH["ffmpeg: compare source and cut video SHA-256 of H.264 picture units and packet count"]
+    INT --> V["ffmpeg tee: write the exact frame count to MKV and hash source H.264 picture units"]
+    V --> VH["ffmpeg: independently hash saved cut MKV picture units and compare packet count"]
     VH --> VG{"Video integrity passes?"}
     VG -- No --> ERR
 
-    INT --> AU["ffmpeg: decode original M2TS audio; atrim interval; write PCM WAV"]
-    AU --> AH["ffprobe + ffmpeg: select source M2TS samples independently by sample count; hash source and cut PCM"]
+    INT --> AU["ffmpeg: one source read; asplit to timestamp-trimmed WAV and sample-trimmed PCM"]
+    AU --> AH["Rust hashes sample-count PCM branch; independently hash saved WAV and compare"]
     AH --> AG{"Source and cut PCM hashes and byte counts match?"}
     AG -- No --> ERR
     AG -- Yes --> FL["flac: encode WAV with -8 and --verify"]

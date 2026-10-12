@@ -75,6 +75,7 @@ struct AudioSampleRange {
     sample_rate: u32,
     start_sample: u64,
     end_sample: u64,
+    decoded_end_sample: u64,
 }
 #[derive(Debug, Clone, Serialize)]
 struct ChapterTiming {
@@ -143,6 +144,7 @@ fn pgs_track(ident: &Identification, relative: usize) -> Result<(u64, usize)> {
 struct AudioStream {
     codec_name: String,
     sample_rate: String,
+    channels: u8,
     time_base: String,
     bits_per_raw_sample: Option<String>,
     bits_per_sample: Option<u8>,
@@ -157,7 +159,7 @@ fn audio_stream(program: &str, path: &Path, track: usize) -> Result<AudioStream>
             "-select_streams",
             &format!("a:{track}"),
             "-show_entries",
-            "stream=codec_name,sample_rate,time_base,bits_per_raw_sample,bits_per_sample,sample_fmt",
+            "stream=codec_name,sample_rate,channels,time_base,bits_per_raw_sample,bits_per_sample,sample_fmt",
             "-of",
             "json",
         ])
@@ -181,7 +183,9 @@ fn audio_stream(program: &str, path: &Path, track: usize) -> Result<AudioStream>
         "Audio track {track} not found in {}",
         path.display()
     );
-    Ok(streams.streams.remove(0))
+    let stream = streams.streams.remove(0);
+    ensure!(stream.channels > 0, "Audio track {track} has no channels");
+    Ok(stream)
 }
 
 fn source_audio_sample_range(
@@ -258,6 +262,7 @@ fn source_audio_sample_range(
         sample_rate,
         start_sample,
         end_sample,
+        decoded_end_sample: end_sample,
     })
 }
 
@@ -299,10 +304,18 @@ struct PreparedAudio {
     path: PathBuf,
     tags: BTreeMap<String, String>,
     source_pcm: Option<PathBuf>,
+    source_pcm_hash: Option<(String, u64)>,
+    source_sample_range: Option<AudioSampleRange>,
 }
 
 fn cut_relative(cut: &ResolvedCut) -> f64 {
     cut.start_seconds - cut.source_start_seconds
+}
+
+// This is only a demux read limit. The atrim filters below retain their exact
+// timestamp/sample boundaries and the margin covers packet duration/reordering.
+fn source_read_bound(cut: &ResolvedCut) -> f64 {
+    (cut.end_seconds - cut.source_start_seconds + 2.0).max(0.0)
 }
 
 fn cut_video(
@@ -312,39 +325,88 @@ fn cut_video(
     track: usize,
     cut: &ResolvedCut,
     work: &Path,
-) -> Result<PathBuf> {
+) -> Result<(PathBuf, (String, u64))> {
     let output = work
         .join(source.file_name().context("Source has no filename")?)
         .with_extension("mkv");
-    audit.command(
-        &cfg.tools.ffmpeg,
-        vec![
-            "-nostdin".into(),
-            "-hide_banner".into(),
-            "-loglevel".into(),
-            "error".into(),
-            "-n".into(),
-            "-ss".into(),
-            format!("{:.9}", cut_relative(cut)),
-            "-i".into(),
-            source.to_string_lossy().into(),
-            "-map".into(),
-            format!("0:v:{track}"),
-            "-frames:v".into(),
-            cut.video_frames.to_string(),
-            "-an".into(),
-            "-sn".into(),
-            "-dn".into(),
-            "-map_chapters".into(),
-            "-1".into(),
-            "-c:v".into(),
-            "copy".into(),
-            output.to_string_lossy().into(),
-        ],
-        false,
-    )?;
+    let tee_output_path = if output.is_absolute() {
+        output.clone()
+    } else {
+        std::env::current_dir()?.join(&output)
+    };
+    let tee_path = tee_output_path
+        .to_string_lossy()
+        .chars()
+        .flat_map(|c| {
+            if "\\|[]".contains(c) {
+                vec!['\\', c]
+            } else {
+                vec![c]
+            }
+        })
+        .collect::<String>();
+    let tee_output = format!(
+        "[f=matroska]{tee_path}|[f=hash:hash=SHA256:bsfs/v=h264_mp4toannexb\\,filter_units=pass_types=1-5]pipe:1"
+    );
+    let args = vec![
+        "-nostdin".into(),
+        "-hide_banner".into(),
+        "-loglevel".into(),
+        "error".into(),
+        "-nostats".into(),
+        "-progress".into(),
+        "pipe:2".into(),
+        "-n".into(),
+        "-ss".into(),
+        format!("{:.9}", cut_relative(cut)),
+        "-i".into(),
+        source.to_string_lossy().into(),
+        "-map".into(),
+        format!("0:v:{track}"),
+        "-frames:v".into(),
+        cut.video_frames.to_string(),
+        "-an".into(),
+        "-sn".into(),
+        "-dn".into(),
+        "-map_chapters".into(),
+        "-1".into(),
+        "-c:v".into(),
+        "copy".into(),
+        // The tee muxer preserves the MPEG-TS codec tag, which Matroska rejects.
+        "-tag:v".into(),
+        "avc1".into(),
+        "-f".into(),
+        "tee".into(),
+        tee_output,
+    ];
+    let result = Command::new(&cfg.tools.ffmpeg).args(&args).output()?;
+    audit.commands.push(CommandRecord {
+        program: cfg.tools.ffmpeg.clone(),
+        args,
+        status: result.status.code(),
+    });
+    audit.save()?;
+    ensure!(
+        result.status.success(),
+        "Cut video and source hash failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
     ensure!(output.is_file(), "FFmpeg did not create the cut video");
-    Ok(output)
+    let line = String::from_utf8(result.stdout)?;
+    let hash = line
+        .trim()
+        .strip_prefix("SHA256=")
+        .context("FFmpeg tee muxer did not return source SHA256")?;
+    ensure!(hash.len() == 64, "Invalid source video SHA256");
+    let packets = String::from_utf8_lossy(&result.stderr)
+        .lines()
+        .filter_map(|line| {
+            line.strip_prefix("frame=")
+                .and_then(|number| number.parse::<u64>().ok())
+        })
+        .next_back()
+        .context("FFmpeg did not report copied video packets")?;
+    Ok((output, (hash.to_owned(), packets)))
 }
 
 fn video_sha256(
@@ -563,9 +625,10 @@ fn extract_audio(
     track: &Track,
     source: &Path,
     work: &Path,
+    stream: &AudioStream,
     cut: Option<&ResolvedCut>,
+    source_range: Option<&AudioSampleRange>,
 ) -> Result<PreparedAudio> {
-    let stream = audio_stream(&cfg.tools.ffprobe, source, track.track)?;
     let extension = if cut.is_some() {
         "wav"
     } else {
@@ -584,49 +647,167 @@ fn extract_audio(
         }
     };
     let extracted = work.join(format!("{}.extracted.{extension}", track.id));
-    let mut args = vec!["-nostdin".into(), "-hide_banner".into(), "-n".into()];
-    args.extend([
-        "-i".into(),
-        source.to_string_lossy().into(),
-        "-map_chapters".into(),
-        "-1".into(),
-        "-map".into(),
-        format!("0:a:{}", track.track),
-        "-vn".into(),
-        "-sn".into(),
-        "-dn".into(),
-    ]);
-    if let Some(cut) = cut {
-        // FFmpeg resets input timestamps to the container start before atrim runs.
-        args.extend([
-            "-af".into(),
-            format!(
-                "atrim=start={:.9}:end={:.9},asetpts=PTS-STARTPTS",
-                cut_relative(cut),
-                cut.end_seconds - cut.source_start_seconds
-            ),
-        ]);
-    }
-    if extension == "wav" {
-        args.extend([
+    let mut source_sample_range = source_range.cloned();
+    let source_pcm_hash = if let (Some(cut), Some(range)) = (cut, source_range)
+        && track.codec == "flac"
+    {
+        let codec = pcm_codec(stream);
+        let format = if codec == "pcm_s16le" {
+            "s16le"
+        } else {
+            "s24le"
+        };
+        let filter = format!(
+            "[0:a:{}]asplit=2[cut_in][source_in];[cut_in]atrim=start={:.9}:end={:.9},asetpts=PTS-STARTPTS[cut_out];[source_in]atrim=start_sample={}:end_sample={}[source_out]",
+            track.track,
+            cut_relative(cut),
+            cut.end_seconds - cut.source_start_seconds,
+            range.start_sample,
+            range.end_sample
+        );
+        let args = vec![
+            "-nostdin".into(),
+            "-hide_banner".into(),
+            "-loglevel".into(),
+            "error".into(),
+            "-n".into(),
+            "-t".into(),
+            format!("{:.9}", source_read_bound(cut)),
+            "-i".into(),
+            source.to_string_lossy().into(),
+            "-filter_complex".into(),
+            filter,
+            "-map".into(),
+            "[cut_out]".into(),
             "-c:a".into(),
-            pcm_codec(&stream).into(),
+            codec.into(),
             "-rf64".into(),
             "auto".into(),
-        ]);
-    } else {
-        args.extend(["-c:a".into(), "copy".into()]);
-        if extension == "dts" {
-            args.extend(["-f".into(), "dts".into()]);
+            extracted.to_string_lossy().into(),
+            "-map".into(),
+            "[source_out]".into(),
+            "-c:a".into(),
+            codec.into(),
+            "-f".into(),
+            format.into(),
+            "-".into(),
+        ];
+        let mut child = Command::new(&cfg.tools.ffmpeg)
+            .args(&args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()?;
+        let mut output = child.stdout.take().context("Missing FFmpeg PCM output")?;
+        let mut digest = Sha256::new();
+        let mut bytes = 0_u64;
+        let mut chunk = [0_u8; 65536];
+        loop {
+            let n = output.read(&mut chunk)?;
+            if n == 0 {
+                break;
+            }
+            digest.update(&chunk[..n]);
+            bytes += n as u64;
         }
-    }
-    args.push(extracted.to_string_lossy().into());
-    audit.command(&cfg.tools.ffmpeg, args, false)?;
+        let result = child.wait_with_output()?;
+        audit.commands.push(CommandRecord {
+            program: cfg.tools.ffmpeg.clone(),
+            args,
+            status: result.status.code(),
+        });
+        audit.save()?;
+        ensure!(
+            result.status.success(),
+            "Cut audio extraction and source PCM hash failed: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let bytes_per_sample = if codec == "pcm_s16le" { 2_u64 } else { 3_u64 };
+        let bytes_per_frame = u64::from(stream.channels)
+            .checked_mul(bytes_per_sample)
+            .context("PCM sample-frame byte count overflowed")?;
+        ensure!(
+            bytes % bytes_per_frame == 0,
+            "Sample-count PCM branch returned a partial interleaved sample frame"
+        );
+        let actual_samples = bytes / bytes_per_frame;
+        let requested_samples = range.end_sample - range.start_sample;
+        ensure!(
+            actual_samples <= requested_samples,
+            "Sample-count PCM branch exceeded the requested source sample range"
+        );
+        ensure!(
+            actual_samples == requested_samples || cut.end_chapter.is_none(),
+            "Source audio reached EOF before the requested internal chapter boundary"
+        );
+        ensure!(
+            actual_samples > 0,
+            "Cut contains no available audio samples"
+        );
+        if let Some(range) = &mut source_sample_range {
+            range.decoded_end_sample = range
+                .start_sample
+                .checked_add(actual_samples)
+                .context("Decoded source sample range overflowed")?;
+        }
+        Some((
+            digest
+                .finalize()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect(),
+            bytes,
+        ))
+    } else {
+        let mut args = vec!["-nostdin".into(), "-hide_banner".into(), "-n".into()];
+        if let Some(cut) = cut {
+            args.extend(["-t".into(), format!("{:.9}", source_read_bound(cut))]);
+        }
+        args.extend([
+            "-i".into(),
+            source.to_string_lossy().into(),
+            "-map_chapters".into(),
+            "-1".into(),
+            "-map".into(),
+            format!("0:a:{}", track.track),
+            "-vn".into(),
+            "-sn".into(),
+            "-dn".into(),
+        ]);
+        if let Some(cut) = cut {
+            // FFmpeg resets input timestamps to the container start before atrim runs.
+            args.extend([
+                "-af".into(),
+                format!(
+                    "atrim=start={:.9}:end={:.9},asetpts=PTS-STARTPTS",
+                    cut_relative(cut),
+                    cut.end_seconds - cut.source_start_seconds
+                ),
+            ]);
+        }
+        if extension == "wav" {
+            args.extend([
+                "-c:a".into(),
+                pcm_codec(stream).into(),
+                "-rf64".into(),
+                "auto".into(),
+            ]);
+        } else {
+            args.extend(["-c:a".into(), "copy".into()]);
+            if extension == "dts" {
+                args.extend(["-f".into(), "dts".into()]);
+            }
+        }
+        args.push(extracted.to_string_lossy().into());
+        audit.command(&cfg.tools.ffmpeg, args, false)?;
+        None
+    };
     if track.codec == "copy" {
         return Ok(PreparedAudio {
             path: extracted,
             tags: BTreeMap::new(),
             source_pcm: None,
+            source_pcm_hash: None,
+            source_sample_range: None,
         });
     }
 
@@ -643,7 +824,7 @@ fn extract_audio(
             "-map".into(),
             "0:a:0".into(),
             "-c:a".into(),
-            pcm_codec(&stream).into(),
+            pcm_codec(stream).into(),
             pcm.to_string_lossy().into(),
         ];
         audit.command(&cfg.tools.ffmpeg, args, false)?;
@@ -667,6 +848,8 @@ fn extract_audio(
     Ok(PreparedAudio {
         path: output,
         source_pcm: cut.map(|_| extracted),
+        source_pcm_hash,
+        source_sample_range,
         tags: BTreeMap::from([
             (
                 "ENCODER".to_owned(),
@@ -897,6 +1080,7 @@ fn chapter_data(
     base: &Path,
     ep: &Episode,
     plan: &EpisodePlan,
+    resolved_cut: Option<&ResolvedCut>,
 ) -> Result<Option<ChapterData>> {
     let Some(c) = &ep.chapters else {
         return Ok(None);
@@ -928,7 +1112,13 @@ fn chapter_data(
         }
         ChapterSpec::Names(names) => {
             if plan.cut.is_some() {
-                let cut = cuts::resolve(cfg, plan)?.context("Missing resolved cut")?;
+                let owned_cut;
+                let cut = if let Some(cut) = resolved_cut {
+                    cut
+                } else {
+                    owned_cut = cuts::resolve(cfg, plan)?.context("Missing resolved cut")?;
+                    &owned_cut
+                };
                 let mut times = cut
                     .chapter_ticks
                     .iter()
@@ -944,7 +1134,7 @@ fn chapter_data(
                 let entries = chapters::name_times(times, names)?;
                 return Ok(Some(ChapterData {
                     content: Some(chapters::ogm(&entries)?),
-                    source: cut.playlist,
+                    source: cut.playlist.clone(),
                     timing: None,
                 }));
             }
@@ -1142,7 +1332,7 @@ fn check_cached(
             .iter()
             .find(|ep| ep.id == plan.episode)
             .unwrap();
-        chapter_data(cfg, base, ep, plan)?;
+        chapter_data(cfg, base, ep, plan, None)?;
         eprintln!(
             "{}: {} tracks, paths/subtitles/fonts/chapters checked",
             plan.episode,
@@ -1338,8 +1528,8 @@ fn run_episode(
             });
             audit.save()?;
             let video = &plan.tracks[0];
-            let path = cut_video(cfg, &mut audit, &plan.source, video.track, cut, &plan.work)?;
-            let source_hash = video_sha256(cfg, &mut audit, &plan.source, video.track, Some(cut))?;
+            let (path, source_hash) =
+                cut_video(cfg, &mut audit, &plan.source, video.track, cut, &plan.work)?;
             ensure!(
                 source_hash.1 == cut.video_frames,
                 "Cut requested {} video frames but copied {}",
@@ -1393,7 +1583,7 @@ fn run_episode(
             "--title".into(),
             plan.title.clone(),
         ];
-        if let Some(chapter) = chapter_data(cfg, base, ep, plan)? {
+        if let Some(chapter) = chapter_data(cfg, base, ep, plan, cut.as_ref())? {
             let path = if let Some(content) = chapter.content {
                 let path = plan.work.join("chapters.txt");
                 std::fs::write(&path, content)?;
@@ -1424,26 +1614,36 @@ fn run_episode(
             let mut t = config_track(cfg, &tp.id, &ep.id);
             let (path, id) = if tp.category == "audio" {
                 let selected_cut = cut.as_ref().filter(|_| tp.source == plan.source);
-                let prepared =
-                    extract_audio(cfg, &mut audit, &t, &tp.source, &plan.work, selected_cut)?;
-                if let Some(pcm) = &prepared.source_pcm {
-                    let stream = audio_stream(&cfg.tools.ffprobe, &tp.source, tp.track)?;
-                    let codec = pcm_codec(&stream);
-                    let range = source_audio_sample_range(
+                let stream = audio_stream(&cfg.tools.ffprobe, &tp.source, tp.track)?;
+                let range = if let Some(selected_cut) = selected_cut
+                    && t.codec == "flac"
+                {
+                    Some(source_audio_sample_range(
                         cfg,
                         &tp.source,
                         tp.track,
                         &stream,
-                        cut.as_ref().unwrap(),
-                    )?;
-                    let original = pcm_sha256(
-                        cfg,
-                        &mut audit,
-                        &tp.source,
-                        tp.track,
-                        codec,
-                        Some([range.start_sample, range.end_sample]),
-                    )?;
+                        selected_cut,
+                    )?)
+                } else {
+                    None
+                };
+                let prepared = extract_audio(
+                    cfg,
+                    &mut audit,
+                    &t,
+                    &tp.source,
+                    &plan.work,
+                    &stream,
+                    selected_cut,
+                    range.as_ref(),
+                )?;
+                if let Some(pcm) = &prepared.source_pcm {
+                    let codec = pcm_codec(&stream);
+                    let original = prepared
+                        .source_pcm_hash
+                        .clone()
+                        .context("Missing source PCM hash from cut extraction")?;
                     let extracted = pcm_sha256(cfg, &mut audit, pcm, 0, codec, None)?;
                     let matches_source = original == extracted;
                     let record = audit.cut.as_mut().unwrap();
@@ -1457,12 +1657,20 @@ fn run_episode(
                     record
                         .cut_audio_pcm_bytes
                         .insert(tp.id.clone(), extracted.1);
-                    record.audio_sample_ranges.insert(tp.id.clone(), range);
+                    record.audio_sample_ranges.insert(
+                        tp.id.clone(),
+                        prepared
+                            .source_sample_range
+                            .clone()
+                            .context("Missing source audio sample range")?,
+                    );
                     audit.save()?;
                     ensure!(
                         matches_source,
-                        "Cut audio {} differs from the corresponding PCM samples in the source",
-                        tp.id
+                        "Cut audio {} differs from corresponding source PCM samples (source {} bytes, cut {} bytes)",
+                        tp.id,
+                        original.1,
+                        extracted.1
                     );
                     cut_audio.insert(tp.id.clone(), (extracted.0, extracted.1, codec));
                 }

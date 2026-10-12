@@ -16,15 +16,15 @@ digraph ChapterCutFlow {
 
   subgraph cluster_video {
     label="Video"; color="#a8c8ef"; style="rounded"; fontname="DejaVu Sans";
-    video [label="ffmpeg: copy exact frame count\nfrom M2TS to a source-named MKV", fillcolor="#e8f1ff"];
-    video_hash [label="ffmpeg: compare source vs cut\nH.264 picture SHA-256 + packet count", fillcolor="#e8f1ff"];
+    video [label="ffmpeg tee: write exact frame count to MKV\nand hash source H.264 picture units", fillcolor="#e8f1ff"];
+    video_hash [label="ffmpeg: independently hash saved cut MKV\npicture units and compare packet count", fillcolor="#e8f1ff"];
     video_ok [shape=diamond, label="Integrity\npasses?", fillcolor="#fff2cc"];
     video -> video_hash -> video_ok;
   }
   subgraph cluster_audio {
     label="Audio"; color="#a9d8b8"; style="rounded"; fontname="DejaVu Sans";
-    audio [label="ffmpeg: decode original M2TS audio,\natrim interval, write PCM WAV", fillcolor="#e7f7ed"];
-    audio_hash [label="ffprobe + ffmpeg: select original M2TS\nsamples by count; hash source and cut PCM", fillcolor="#e7f7ed"];
+    audio [label="ffmpeg: one source read; asplit to timestamp-trimmed\nWAV and sample-trimmed PCM", fillcolor="#e7f7ed"];
+    audio_hash [label="Rust hashes sample-count PCM branch; independently\nhash saved WAV and compare", fillcolor="#e7f7ed"];
     audio_ok [shape=diamond, label="Source and cut\nPCM match?", fillcolor="#fff2cc"];
     flac [label="flac: encode WAV\n-8 --verify", fillcolor="#e7f7ed"];
     audio -> audio_hash -> audio_ok;

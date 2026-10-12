@@ -74,6 +74,16 @@ fn cuts_shared_m2ts_and_verifies_final_tracks() {
             "lavfi",
             "-i",
             "sine=frequency=440:sample_rate=48000",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=660:sample_rate=48000",
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-map",
+            "2:a:0",
             "-t",
             "40",
             "-c:v",
@@ -87,6 +97,8 @@ fn cuts_shared_m2ts_and_verifies_final_tracks() {
             "-bf",
             "3",
             "-c:a",
+            "ac3",
+            "-c:a:1",
             "ac3",
             "-output_ts_offset",
             "4219",
@@ -147,7 +159,7 @@ fn cuts_shared_m2ts_and_verifies_final_tracks() {
         put32(&mut mpls, p + 4, *tick);
     }
     std::fs::write(bdmv.join("PLAYLIST/00001.mpls"), mpls).unwrap();
-    let config = "[project]\nshow='Split'\nout_dir='out'\nwork_dir='work'\nclean_work_dirs=false\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01={source='BDMV/STREAM/00001.m2ts',start_chapter=1,end_chapter=2}\n02={source='BDMV/STREAM/00001.m2ts',start_chapter=2}\n[chapters]\n01=[]\n02=[]\n[VideoTrack.01]\nsource='{episodes}'\n[AudioTrack.01]\nsource='{episodes}'\ncodec='flac'\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\n'AudioTrack.01'={name='Audio',language='ja'}\n";
+    let config = "[project]\nshow='Split'\nout_dir='out'\nwork_dir='work [one|two]'\nclean_work_dirs=false\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01={source='BDMV/STREAM/00001.m2ts',start_chapter=1,end_chapter=2}\n02={source='BDMV/STREAM/00001.m2ts',start_chapter=2}\n[chapters]\n01=[]\n02=[]\n[VideoTrack.01]\nsource='{episodes}'\n[AudioTrack.01]\nsource='{episodes}'\ncodec='flac'\n[AudioTrack.02]\nsource='{episodes}'\ntrack=1\ncodec='flac'\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\n'AudioTrack.01'={name='Audio',language='ja'}\n'AudioTrack.02'={name='Audio 2',language='ja'}\n";
     let config_path = base.join("batch.toml");
     std::fs::write(&config_path, config).unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
@@ -162,7 +174,10 @@ fn cuts_shared_m2ts_and_verifies_final_tracks() {
     for episode in ["01", "02"] {
         let final_path = base.join(format!("out/Split.{episode}.mkv"));
         assert!(final_path.is_file());
-        assert!(base.join(format!("work/{episode}/00001.mkv")).is_file());
+        assert!(
+            base.join(format!("work [one|two]/{episode}/00001.mkv"))
+                .is_file()
+        );
         let chapter_probe = Command::new("ffprobe")
             .args([
                 "-v",
@@ -188,6 +203,32 @@ fn cuts_shared_m2ts_and_verifies_final_tracks() {
         if episode == "01" {
             assert_eq!(audit["cut"]["resolved"]["video_frames"], 768);
         }
+        assert_eq!(
+            audit["cut"]["source_video_sha256"],
+            audit["cut"]["copied_video_sha256"]
+        );
+        let cut_command = &audit["commands"];
+        let source_video_reads = cut_command
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|command| {
+                let args = command["args"].as_array().unwrap();
+                args.windows(2)
+                    .any(|pair| pair[0] == "-i" && pair[1] == source.to_string_lossy().as_ref())
+                    && args
+                        .windows(2)
+                        .any(|pair| pair[0] == "-map" && pair[1] == "0:v:0")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(source_video_reads.len(), 1);
+        assert!(
+            source_video_reads[0]["args"]
+                .as_array()
+                .unwrap()
+                .windows(2)
+                .any(|pair| pair[0] == "-f" && pair[1] == "tee")
+        );
         assert_eq!(
             audit["cut"]["source_video_sha256"],
             audit["cut"]["final_video_sha256"]
@@ -217,7 +258,26 @@ fn cuts_shared_m2ts_and_verifies_final_tracks() {
         );
         let range = &audio["audio_sample_ranges"]["AudioTrack.01"];
         assert!(range["end_sample"].as_u64().unwrap() > range["start_sample"].as_u64().unwrap());
+        assert!(
+            range["decoded_end_sample"].as_u64().unwrap() <= range["end_sample"].as_u64().unwrap()
+        );
+        if episode == "01" {
+            assert_eq!(range["decoded_end_sample"], range["end_sample"]);
+        } else {
+            assert!(
+                range["decoded_end_sample"].as_u64().unwrap()
+                    < range["end_sample"].as_u64().unwrap()
+            );
+        }
         assert_eq!(range["sample_rate"], 48000);
+        assert_eq!(
+            audio["source_audio_sha256"]["AudioTrack.02"],
+            audio["cut_audio_sha256"]["AudioTrack.02"]
+        );
+        assert_eq!(
+            audio["cut_audio_sha256"]["AudioTrack.02"],
+            audio["final_audio_sha256"]["AudioTrack.02"]
+        );
     }
     let raw = |path: &Path, interval: Option<(f64, f64)>| {
         let mut command = Command::new("ffmpeg");
