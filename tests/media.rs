@@ -161,6 +161,7 @@ fn cuts_shared_m2ts_and_verifies_final_tracks() {
     for episode in ["01", "02"] {
         let final_path = base.join(format!("out/Split.{episode}.mkv"));
         assert!(final_path.is_file());
+        assert!(base.join(format!("work/{episode}/00001.mkv")).is_file());
         let chapter_probe = Command::new("ffprobe")
             .args([
                 "-v",
@@ -333,7 +334,7 @@ fn joins_m2ts_clips_before_extracting_audio() {
     }
     let output = base.join("out/Joined.01.mkv");
     assert!(output.is_file());
-    assert!(base.join("work/muxcraft-01/joined-source.mkv").is_file());
+    assert!(base.join("work/01/a.joined.mkv").is_file());
     let out = Command::new("ffprobe")
         .args([
             "-v",
@@ -425,7 +426,7 @@ fn bdmv_chapters_use_video_duration_for_terminal_mark_and_audit() {
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    let chapters = std::fs::read_to_string(base.join("work/muxcraft-01/chapters.txt")).unwrap();
+    let chapters = std::fs::read_to_string(base.join("work/01/chapters.txt")).unwrap();
     assert!(chapters.contains("CHAPTER03=00:00:08.000"));
     let audit: serde_json::Value =
         serde_json::from_slice(&std::fs::read(base.join("out/ChapterTest.01.audit.json")).unwrap())
@@ -603,7 +604,7 @@ pgs_alt={name='Second PGS',language='ja-JP'}
     for ep in ["01", "02"] {
         let output = base.join(format!("out/Test.{ep}.mkv"));
         assert!(output.exists());
-        assert!(!base.join(format!("work/muxcraft-{ep}")).exists());
+        assert!(!base.join(format!("work/{ep}")).exists());
         let audit: serde_json::Value =
             serde_json::from_slice(&std::fs::read(output.with_extension("audit.json")).unwrap())
                 .unwrap();

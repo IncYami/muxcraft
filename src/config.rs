@@ -1279,13 +1279,13 @@ impl Config {
                     })
                 })
                 .transpose()?;
-            let work = absolute(base, &expand(&self.project.work_dir, &vars)?)
-                .join(format!("muxcraft-{}", ep.id));
+            let work = absolute(base, &expand(&self.project.work_dir, &vars)?).join(&ep.id);
             ensure!(works.insert(work.clone()), "Duplicate workdir");
             let source = if sources.len() == 1 {
                 sources[0].clone()
             } else {
-                work.join("joined-source.mkv")
+                work.join(sources[0].file_name().context("Source has no filename")?)
+                    .with_extension("joined.mkv")
             };
             vars.insert("episodes".into(), source.to_string_lossy().into());
             let out_dir = absolute(base, &expand(&self.project.out_dir, &vars)?);

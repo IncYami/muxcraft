@@ -222,7 +222,9 @@ fn cut_video(
     cut: &ResolvedCut,
     work: &Path,
 ) -> Result<PathBuf> {
-    let output = work.join("cut-video.mkv");
+    let output = work
+        .join(source.file_name().context("Source has no filename")?)
+        .with_extension("mkv");
     audit.command(
         &cfg.tools.ffmpeg,
         vec![
@@ -1265,9 +1267,12 @@ fn run_episode(
         std::fs::create_dir_all(dir)?;
         // Temporary output in the destination filesystem; hard_link publishes without overwrite.
         let partial = dir.join(format!(
-            ".muxcraft-{}-{}.partial.mkv",
-            std::process::id(),
-            ep.id
+            ".{}.{}.partial.mkv",
+            plan.output
+                .file_stem()
+                .context("Output has no filename stem")?
+                .to_string_lossy(),
+            std::process::id()
         ));
         ensure!(
             !partial.exists(),

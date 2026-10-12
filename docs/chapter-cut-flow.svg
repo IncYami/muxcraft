@@ -156,7 +156,7 @@
 <title>video</title>
 <path fill="#e8f1ff" stroke="#8297b0" d="M1103.37,-1158.6C1103.37,-1158.6 920.63,-1158.6 920.63,-1158.6 914.63,-1158.6 908.63,-1152.6 908.63,-1146.6 908.63,-1146.6 908.63,-1127.76 908.63,-1127.76 908.63,-1121.76 914.63,-1115.76 920.63,-1115.76 920.63,-1115.76 1103.37,-1115.76 1103.37,-1115.76 1109.37,-1115.76 1115.37,-1121.76 1115.37,-1127.76 1115.37,-1127.76 1115.37,-1146.6 1115.37,-1146.6 1115.37,-1152.6 1109.37,-1158.6 1103.37,-1158.6"/>
 <text xml:space="preserve" text-anchor="middle" x="1012" y="-1140.23" font-family="DejaVu Sans" font-size="11.00">ffmpeg: stream copy M2TS video</text>
-<text xml:space="preserve" text-anchor="middle" x="1012" y="-1126.73" font-family="DejaVu Sans" font-size="11.00">to cut&#45;video.mkv</text>
+<text xml:space="preserve" text-anchor="middle" x="1012" y="-1126.73" font-family="DejaVu Sans" font-size="11.00">to a source&#45;named MKV</text>
 </g>
 <!-- interval&#45;&gt;video -->
 <g id="edge14" class="edge">

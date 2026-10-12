@@ -16,7 +16,7 @@ digraph ChapterCutFlow {
 
   subgraph cluster_video {
     label="Video"; color="#a8c8ef"; style="rounded"; fontname="DejaVu Sans";
-    video [label="ffmpeg: stream copy M2TS video\nto cut-video.mkv", fillcolor="#e8f1ff"];
+    video [label="ffmpeg: stream copy M2TS video\nto a source-named MKV", fillcolor="#e8f1ff"];
     video_hash [label="ffmpeg: compare source vs cut\nH.264 picture SHA-256 + packet count", fillcolor="#e8f1ff"];
     video_ok [shape=diamond, label="Integrity\npasses?", fillcolor="#fff2cc"];
     video -> video_hash -> video_ok;
