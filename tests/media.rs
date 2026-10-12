@@ -85,7 +85,7 @@ fn cuts_shared_m2ts_and_verifies_final_tracks() {
             "-sc_threshold",
             "0",
             "-bf",
-            "0",
+            "3",
             "-c:a",
             "ac3",
             "-output_ts_offset",
@@ -128,7 +128,8 @@ fn cuts_shared_m2ts_and_verifies_final_tracks() {
     assert!(keyframes.len() >= 17);
     let first = (keyframes[0] * 45000.0).round() as u32;
     let second = (keyframes[16] * 45000.0).round() as u32;
-    let end = ((timestamps.last().unwrap() + 1.0 / 24.0) * 45000.0).round() as u32;
+    let end = ((timestamps.iter().copied().reduce(f64::max).unwrap() + 1.0 / 24.0) * 45000.0)
+        .round() as u32;
     let mut mpls = vec![0_u8; 128];
     mpls[..4].copy_from_slice(b"MPLS");
     put32(&mut mpls, 8, 32);
@@ -184,6 +185,9 @@ fn cuts_shared_m2ts_and_verifies_final_tracks() {
             &std::fs::read(base.join(format!("out/Split.{episode}.audit.json"))).unwrap(),
         )
         .unwrap();
+        if episode == "01" {
+            assert_eq!(audit["cut"]["resolved"]["video_frames"], 768);
+        }
         assert_eq!(
             audit["cut"]["source_video_sha256"],
             audit["cut"]["final_video_sha256"]

@@ -237,10 +237,10 @@ fn cut_video(
             format!("{:.9}", cut_relative(cut)),
             "-i".into(),
             source.to_string_lossy().into(),
-            "-t".into(),
-            format!("{:.9}", cut.end_seconds - cut.start_seconds),
             "-map".into(),
             format!("0:v:{track}"),
+            "-frames:v".into(),
+            cut.video_frames.to_string(),
             "-an".into(),
             "-sn".into(),
             "-dn".into(),
@@ -276,12 +276,6 @@ fn video_sha256(
         args.extend(["-ss".into(), format!("{:.9}", cut_relative(cut))]);
     }
     args.extend(["-i".into(), source.to_string_lossy().into()]);
-    if let Some(cut) = cut {
-        args.extend([
-            "-t".into(),
-            format!("{:.9}", cut.end_seconds - cut.start_seconds),
-        ]);
-    }
     args.extend([
         "-map".into(),
         format!("0:v:{track}"),
@@ -289,6 +283,11 @@ fn video_sha256(
         "copy".into(),
         "-bsf:v".into(),
         "h264_mp4toannexb,filter_units=pass_types=1-5".into(),
+    ]);
+    if let Some(cut) = cut {
+        args.extend(["-frames:v".into(), cut.video_frames.to_string()]);
+    }
+    args.extend([
         "-f".into(),
         "hash".into(),
         "-hash".into(),
@@ -1238,6 +1237,12 @@ fn run_episode(
             let video = &plan.tracks[0];
             let path = cut_video(cfg, &mut audit, &plan.source, video.track, cut, &plan.work)?;
             let source_hash = video_sha256(cfg, &mut audit, &plan.source, video.track, Some(cut))?;
+            ensure!(
+                source_hash.1 == cut.video_frames,
+                "Cut requested {} video frames but copied {}",
+                cut.video_frames,
+                source_hash.1
+            );
             let copied_hash = video_sha256(cfg, &mut audit, &path, 0, None)?;
             ensure!(
                 source_hash == copied_hash,

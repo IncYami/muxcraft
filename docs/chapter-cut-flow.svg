@@ -154,15 +154,15 @@
 <!-- video -->
 <g id="node11" class="node">
 <title>video</title>
-<path fill="#e8f1ff" stroke="#8297b0" d="M1103.37,-1158.6C1103.37,-1158.6 920.63,-1158.6 920.63,-1158.6 914.63,-1158.6 908.63,-1152.6 908.63,-1146.6 908.63,-1146.6 908.63,-1127.76 908.63,-1127.76 908.63,-1121.76 914.63,-1115.76 920.63,-1115.76 920.63,-1115.76 1103.37,-1115.76 1103.37,-1115.76 1109.37,-1115.76 1115.37,-1121.76 1115.37,-1127.76 1115.37,-1127.76 1115.37,-1146.6 1115.37,-1146.6 1115.37,-1152.6 1109.37,-1158.6 1103.37,-1158.6"/>
-<text xml:space="preserve" text-anchor="middle" x="1012" y="-1140.23" font-family="DejaVu Sans" font-size="11.00">ffmpeg: stream copy M2TS video</text>
-<text xml:space="preserve" text-anchor="middle" x="1012" y="-1126.73" font-family="DejaVu Sans" font-size="11.00">to a source&#45;named MKV</text>
+<path fill="#e8f1ff" stroke="#8297b0" d="M1113.74,-1158.6C1113.74,-1158.6 918.26,-1158.6 918.26,-1158.6 912.26,-1158.6 906.26,-1152.6 906.26,-1146.6 906.26,-1146.6 906.26,-1127.76 906.26,-1127.76 906.26,-1121.76 912.26,-1115.76 918.26,-1115.76 918.26,-1115.76 1113.74,-1115.76 1113.74,-1115.76 1119.74,-1115.76 1125.74,-1121.76 1125.74,-1127.76 1125.74,-1127.76 1125.74,-1146.6 1125.74,-1146.6 1125.74,-1152.6 1119.74,-1158.6 1113.74,-1158.6"/>
+<text xml:space="preserve" text-anchor="middle" x="1016" y="-1140.23" font-family="DejaVu Sans" font-size="11.00">ffmpeg: copy exact frame count</text>
+<text xml:space="preserve" text-anchor="middle" x="1016" y="-1126.73" font-family="DejaVu Sans" font-size="11.00">from M2TS to a source&#45;named MKV</text>
 </g>
 <!-- interval&#45;&gt;video -->
 <g id="edge14" class="edge">
 <title>interval&#45;&gt;video</title>
-<path fill="none" stroke="#64748b" d="M655.03,-1227.36C727.43,-1209.27 840.79,-1180.95 920.29,-1161.09"/>
-<polygon fill="#64748b" stroke="#64748b" points="920.7,-1163.51 926.89,-1159.44 919.51,-1158.76 920.7,-1163.51"/>
+<path fill="none" stroke="#64748b" d="M655.69,-1227.36C728.76,-1209.27 843.19,-1180.95 923.44,-1161.09"/>
+<polygon fill="#64748b" stroke="#64748b" points="923.9,-1163.5 930.11,-1159.44 922.73,-1158.74 923.9,-1163.5"/>
 </g>
 <!-- audio -->
 <g id="node14" class="node">
@@ -213,8 +213,8 @@
 <!-- video&#45;&gt;video_hash -->
 <g id="edge1" class="edge">
 <title>video&#45;&gt;video_hash</title>
-<path fill="none" stroke="#64748b" d="M1013.5,-1115.47C1014.75,-1098.4 1016.52,-1074 1017.9,-1055.01"/>
-<polygon fill="#64748b" stroke="#64748b" points="1020.33,-1055.37 1018.39,-1048.21 1015.44,-1055.02 1020.33,-1055.37"/>
+<path fill="none" stroke="#64748b" d="M1016.75,-1115.47C1017.37,-1098.4 1018.26,-1074 1018.95,-1055.01"/>
+<polygon fill="#64748b" stroke="#64748b" points="1021.39,-1055.3 1019.2,-1048.22 1016.49,-1055.12 1021.39,-1055.3"/>
 </g>
 <!-- video_ok -->
 <g id="node13" class="node">

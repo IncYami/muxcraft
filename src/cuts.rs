@@ -18,6 +18,7 @@ pub struct ResolvedCut {
     pub end_ticks: u32,
     pub start_seconds: f64,
     pub end_seconds: f64,
+    pub video_frames: u64,
     pub start_deviation_ms: f64,
     pub end_deviation_ms: Option<f64>,
     pub chapter_ticks: Vec<u32>,
@@ -181,6 +182,12 @@ pub fn resolve(cfg: &Config, plan: &EpisodePlan) -> Result<Option<ResolvedCut>> 
         "Cut {} keyframes are not ascending",
         plan.episode
     );
+    let video_frames = ((end_seconds - start_seconds) / frame).round() as u64;
+    ensure!(
+        video_frames > 0,
+        "Cut {} contains no video frames",
+        plan.episode
+    );
     ensure!(
         start_seconds + 0.000001 >= source_start_seconds,
         "Cut {} starts before the M2TS timeline",
@@ -202,6 +209,7 @@ pub fn resolve(cfg: &Config, plan: &EpisodePlan) -> Result<Option<ResolvedCut>> 
         end_ticks,
         start_seconds,
         end_seconds,
+        video_frames,
         start_deviation_ms: (start_seconds - requested_start) * 1000.0,
         end_deviation_ms: spec
             .end_chapter

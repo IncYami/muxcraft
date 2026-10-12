@@ -9,7 +9,7 @@ flowchart TD
     G -- No --> ERR["Stop this episode and record the error"]
     G -- Yes --> INT["Resolved episode interval"]
 
-    INT --> V["ffmpeg: video stream copy from M2TS to a source-named MKV"]
+    INT --> V["ffmpeg: copy the exact frame count from M2TS to a source-named MKV"]
     V --> VH["ffmpeg: compare source and cut video SHA-256 of H.264 picture units and packet count"]
     VH --> VG{"Video integrity passes?"}
     VG -- No --> ERR
