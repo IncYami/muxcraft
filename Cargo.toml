@@ -1,0 +1,25 @@
+[package]
+name = "muxcraft"
+version = "0.1.0"
+edition = "2024"
+description = "Auditable batch remuxing driven by TOML"
+license = "MPL-2.0"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = { version = "1.1", features = ["preserve_order"] }
+indexmap = { version = "2", features = ["serde"] }
+regex = "1"
+walkdir = "2"
+sha2 = "0.11"
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "query", "rustls"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+strip = true

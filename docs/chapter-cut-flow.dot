@@ -1,0 +1,72 @@
+digraph ChapterCutFlow {
+  graph [rankdir=TB, bgcolor="white", pad="0.35", nodesep="0.3", ranksep="0.48", fontname="DejaVu Sans", label="Muxcraft: chapter-based episode cut", labelloc=t, fontsize=22, fontcolor="#14243a"];
+  node [shape=box, style="rounded,filled", fillcolor="#edf4ff", color="#8297b0", fontname="DejaVu Sans", fontsize=11, margin="0.17,0.11"];
+  edge [color="#64748b", arrowsize=0.7, fontname="DejaVu Sans", fontsize=9];
+
+  toml [label="Batch TOML\n[episodes] entry", fillcolor="#dceeff"];
+  plan [label="Rust: load config, expand paths,\nbuild episode plan"];
+  cut [shape=diamond, label="start_chapter\npresent?", fillcolor="#fff2cc"];
+  no_cut [label="Use configured source; standard mux\npath outside this diagram", fillcolor="#f3f4f6"];
+  discover [label="Rust: find matching MPLS\nin BDMV/PLAYLIST"];
+  marks [label="Rust: read 45 kHz chapter marks\nand select interval"];
+  probe [label="ffprobe: H.264, source start time,\nnearby keyframes", fillcolor="#e0f4f4"];
+  bounds [shape=diamond, label="Valid boundaries\nwithin one frame?", fillcolor="#fff2cc"];
+  interval [label="Resolved episode interval", fillcolor="#dceeff"];
+  error [label="Stop episode; write error to audit", fillcolor="#ffe1e1", color="#c76d6d"];
+
+  subgraph cluster_video {
+    label="Video"; color="#a8c8ef"; style="rounded"; fontname="DejaVu Sans";
+    video [label="ffmpeg: stream copy M2TS video\nto cut-video.mkv", fillcolor="#e8f1ff"];
+    video_hash [label="ffmpeg: compare source vs cut\nH.264 picture SHA-256 + packet count", fillcolor="#e8f1ff"];
+    video_ok [shape=diamond, label="Integrity\npasses?", fillcolor="#fff2cc"];
+    video -> video_hash -> video_ok;
+  }
+  subgraph cluster_audio {
+    label="Audio"; color="#a9d8b8"; style="rounded"; fontname="DejaVu Sans";
+    audio [label="ffmpeg: decode original M2TS audio,\natrim interval, write PCM WAV", fillcolor="#e7f7ed"];
+    flac [label="flac: encode WAV\n-8 --verify", fillcolor="#e7f7ed"];
+    audio -> flac;
+  }
+  subgraph cluster_pgs {
+    label="PGS, if configured"; color="#ccb4e8"; style="rounded"; fontname="DejaVu Sans";
+    pgs [label="ffmpeg: extract complete\nPGS stream to SUP", fillcolor="#f3eaff"];
+    pgs_cut [label="Rust: select complete display sets\nand rebase timestamps", fillcolor="#f3eaff"];
+    pgs -> pgs_cut;
+  }
+  chapter [label="Rust: generate episode-relative\nchapters.ogm, if configured", fillcolor="#fff2e2"];
+  text [label="Rust: prepare ASS/SRT and\ncollect fonts, if configured", fillcolor="#fff2e2"];
+  mux [label="mkvmerge: combine prepared tracks,\nchapters, fonts and tags", fillcolor="#dceeff"];
+  partial [label="Temporary final MKV"];
+  final_video [label="ffmpeg: compare source vs final\nH.264 picture SHA-256 + packet count"];
+  final_audio [label="ffmpeg: compare extracted PCM vs\nfinal decoded audio SHA-256 + byte count"];
+  sync [label="ffprobe: compare first video/audio timestamps\nmaximum difference: 1 ms"];
+  final_pgs [label="ffmpeg: compare extracted vs final\nPGS packet SHA-256, if present"];
+  all_ok [shape=diamond, label="All checks\npass?", fillcolor="#fff2cc"];
+  output [label="Publish episode MKV\nand audit.json", fillcolor="#ddf7e3", color="#72ad7d"];
+  next [shape=diamond, label="More episodes?", fillcolor="#fff2cc"];
+  repeat [label="Process next episode\nwith the same steps", fillcolor="#dceeff"];
+  done [label="Batch complete", fillcolor="#ddf7e3"];
+
+  toml -> plan -> cut;
+  cut -> no_cut [label="no"];
+  cut -> discover [label="yes"];
+  discover -> marks -> probe -> bounds;
+  bounds -> error [label="no"];
+  bounds -> interval [label="yes"];
+  interval -> video;
+  interval -> audio;
+  interval -> pgs [style=dashed];
+  interval -> chapter [style=dashed];
+  video_ok -> error [label="no"];
+  video_ok -> mux [label="yes"];
+  flac -> mux;
+  pgs_cut -> mux;
+  chapter -> mux;
+  text -> mux;
+  mux -> partial -> final_video -> final_audio -> sync -> final_pgs -> all_ok;
+  all_ok -> error [label="no"];
+  all_ok -> output [label="yes"];
+  output -> next;
+  next -> done [label="no"];
+  next -> repeat [label="yes"];
+}
