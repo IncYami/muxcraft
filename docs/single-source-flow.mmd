@@ -1,0 +1,32 @@
+flowchart TD
+    A["Batch TOML: one file in [episodes], no chapter cut"] --> B["Rust: expand paths and build the episode plan"]
+    B --> C["Preflight: inspect configured sources, tracks, chapters and fonts"]
+    C --> W["Create work/EP and start audit.json"]
+    W --> V["VideoTrack: use the original source directly; mkvmerge identifies the selected video track"]
+    W --> AU{"AudioTrack configured?"}
+    AU -- Yes --> AX["ffprobe identifies audio; ffmpeg extracts the selected stream"]
+    AX --> AC{"FLAC requested?"}
+    AC -- Yes --> PCM["ffmpeg decodes to PCM when needed; flac encodes with -8 and --verify"]
+    AC -- No --> COPY["Use the extracted original codec"]
+    W --> PG{"PGS configured?"}
+    PG -- Container --> PX["ffmpeg stream-copies the selected PGS track to SUP"]
+    PG -- SUP file --> PD["Use the SUP file directly"]
+    W --> SUB["Rust: prepare ASS/SRT; collect matching font files if enabled"]
+    W --> CH["Rust: use supplied chapters or generate OGM chapters from frames/BDMV"]
+    W --> TAG["Rust: prepare optional track and TMDB tags"]
+    V --> MX["mkvmerge: combine selected tracks, chapters, fonts and tags into a temporary MKV"]
+    PCM --> MX
+    COPY --> MX
+    PX --> MX
+    PD --> MX
+    SUB --> MX
+    CH --> MX
+    TAG --> MX
+    MX --> OUT["Publish final MKV without overwriting; copy adjacent audit.json"]
+    OUT --> CLEAN{"clean_work_dirs?"}
+    CLEAN -- Yes --> RM["Remove work/EP"]
+    CLEAN -- No --> KEEP["Keep intermediate files"]
+    RM --> NEXT{"More episodes?"}
+    KEEP --> NEXT
+    NEXT -- Yes --> REPEAT["Process the next episode using its prebuilt plan"]
+    NEXT -- No --> DONE["Batch complete"]

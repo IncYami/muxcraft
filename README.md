@@ -255,7 +255,15 @@ Chapter numbers are one-based; `end_chapter` is exclusive. Omitting it uses the 
 
 For cut episodes, `[chapters]` names only the marks inside that episode, and its first chapter starts at zero. PGS from the shared M2TS is selected as complete display sets, with timestamps rebased to the episode. An active display at either boundary or a display that depends on objects from before the cut causes an error. The final PGS packet hash is also compared with the extracted track.
 
-The [chapter-cut flowchart](docs/chapter-cut-flow.svg) shows each tool and intermediate file. Its editable sources are available in [Mermaid](docs/chapter-cut-flow.mmd) and [Graphviz DOT](docs/chapter-cut-flow.dot).
+The operation flowcharts show each tool and intermediate file:
+
+| Source mode | View | Editable source |
+| --- | --- | --- |
+| One file, no cut | [Single-source mux](docs/single-source-flow.svg) | [Mermaid](docs/single-source-flow.mmd) · [Graphviz DOT](docs/single-source-flow.dot) |
+| Ordered clips joined into one episode | [Multi-part join](docs/multi-part-flow.svg) | [Mermaid](docs/multi-part-flow.mmd) · [Graphviz DOT](docs/multi-part-flow.dot) |
+| One M2TS cut at chapter boundaries | [Chapter cut](docs/chapter-cut-flow.svg) | [Mermaid](docs/chapter-cut-flow.mmd) · [Graphviz DOT](docs/chapter-cut-flow.dot) |
+
+The video, audio, and PGS hash comparisons shown in the chapter-cut flow apply to that mode. For any episode, an execution failure records the error in its audit and retains its workdir; `continue_on_error` controls whether the batch proceeds. Preflight failures stop the batch before processing.
 
 ## Native font collector
 
