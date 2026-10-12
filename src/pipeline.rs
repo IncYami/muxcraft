@@ -58,11 +58,23 @@ struct CutAudit {
     source_video_packets: Option<u64>,
     copied_video_packets: Option<u64>,
     final_video_packets: Option<u64>,
-    audio_sha256: BTreeMap<String, String>,
-    audio_pcm_bytes: BTreeMap<String, u64>,
+    source_audio_sha256: BTreeMap<String, String>,
+    cut_audio_sha256: BTreeMap<String, String>,
+    final_audio_sha256: BTreeMap<String, String>,
+    source_audio_pcm_bytes: BTreeMap<String, u64>,
+    cut_audio_pcm_bytes: BTreeMap<String, u64>,
+    final_audio_pcm_bytes: BTreeMap<String, u64>,
+    audio_sample_ranges: BTreeMap<String, AudioSampleRange>,
     pgs_sha256: BTreeMap<String, String>,
     first_video_ms: Option<f64>,
     first_audio_ms: BTreeMap<String, f64>,
+}
+#[derive(Debug, Clone, Serialize)]
+struct AudioSampleRange {
+    first_source_sample_pts_seconds: f64,
+    sample_rate: u32,
+    start_sample: u64,
+    end_sample: u64,
 }
 #[derive(Debug, Clone, Serialize)]
 struct ChapterTiming {
@@ -130,6 +142,8 @@ fn pgs_track(ident: &Identification, relative: usize) -> Result<(u64, usize)> {
 #[derive(Debug, Deserialize)]
 struct AudioStream {
     codec_name: String,
+    sample_rate: String,
+    time_base: String,
     bits_per_raw_sample: Option<String>,
     bits_per_sample: Option<u8>,
     sample_fmt: Option<String>,
@@ -143,7 +157,7 @@ fn audio_stream(program: &str, path: &Path, track: usize) -> Result<AudioStream>
             "-select_streams",
             &format!("a:{track}"),
             "-show_entries",
-            "stream=codec_name,bits_per_raw_sample,bits_per_sample,sample_fmt",
+            "stream=codec_name,sample_rate,time_base,bits_per_raw_sample,bits_per_sample,sample_fmt",
             "-of",
             "json",
         ])
@@ -168,6 +182,83 @@ fn audio_stream(program: &str, path: &Path, track: usize) -> Result<AudioStream>
         path.display()
     );
     Ok(streams.streams.remove(0))
+}
+
+fn source_audio_sample_range(
+    cfg: &Config,
+    source: &Path,
+    track: usize,
+    stream: &AudioStream,
+    cut: &ResolvedCut,
+) -> Result<AudioSampleRange> {
+    let output = Command::new(&cfg.tools.ffprobe)
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            &format!("a:{track}"),
+            "-read_intervals",
+            "%+#1",
+            "-show_frames",
+            "-show_entries",
+            "frame=pts",
+            "-of",
+            "json",
+        ])
+        .arg(source)
+        .output()?;
+    ensure!(
+        output.status.success(),
+        "ffprobe failed to locate the first audio sample in {}: {}",
+        source.display(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    #[derive(Deserialize)]
+    struct Frame {
+        pts: i64,
+    }
+    #[derive(Deserialize)]
+    struct Frames {
+        frames: Vec<Frame>,
+    }
+    let frames: Frames = serde_json::from_slice(&output.stdout)?;
+    let first_pts_ticks = frames
+        .frames
+        .first()
+        .context("Source has no decoded audio frames")?
+        .pts;
+    let (time_base_num, time_base_den) = stream
+        .time_base
+        .split_once('/')
+        .context("Invalid audio time base")?;
+    let time_base_num: u32 = time_base_num.parse()?;
+    let time_base_den: u32 = time_base_den.parse()?;
+    ensure!(
+        time_base_num > 0 && time_base_den > 0,
+        "Invalid audio time base"
+    );
+    let first_pts = first_pts_ticks as f64 * f64::from(time_base_num) / f64::from(time_base_den);
+    let sample_rate: u32 = stream.sample_rate.parse()?;
+    ensure!(sample_rate > 0, "Invalid audio sample rate");
+    let index = |seconds: f64| -> Result<u64> {
+        let samples = ((seconds - first_pts) * f64::from(sample_rate))
+            .round()
+            .max(0.0);
+        ensure!(
+            samples.is_finite() && samples < u64::MAX as f64,
+            "Audio sample index is outside the supported range"
+        );
+        Ok(samples as u64)
+    };
+    let start_sample = index(cut.start_seconds)?;
+    let end_sample = index(cut.end_seconds)?;
+    ensure!(end_sample > start_sample, "Cut contains no audio samples");
+    Ok(AudioSampleRange {
+        first_source_sample_pts_seconds: first_pts,
+        sample_rate,
+        start_sample,
+        end_sample,
+    })
 }
 
 fn pcm_codec(stream: &AudioStream) -> &'static str {
@@ -329,6 +420,7 @@ fn pcm_sha256(
     source: &Path,
     track: usize,
     codec: &str,
+    sample_range: Option<[u64; 2]>,
 ) -> Result<(String, u64)> {
     let mut args = vec![
         "-nostdin".into(),
@@ -337,6 +429,12 @@ fn pcm_sha256(
         "error".into(),
     ];
     args.extend(["-i".into(), source.to_string_lossy().into()]);
+    if let Some([start, end]) = sample_range {
+        args.extend([
+            "-af".into(),
+            format!("atrim=start_sample={start}:end_sample={end}"),
+        ]);
+    }
     let format = if codec == "pcm_s16le" {
         "s16le"
     } else {
@@ -1227,8 +1325,13 @@ fn run_episode(
                 source_video_packets: None,
                 copied_video_packets: None,
                 final_video_packets: None,
-                audio_sha256: BTreeMap::new(),
-                audio_pcm_bytes: BTreeMap::new(),
+                source_audio_sha256: BTreeMap::new(),
+                cut_audio_sha256: BTreeMap::new(),
+                final_audio_sha256: BTreeMap::new(),
+                source_audio_pcm_bytes: BTreeMap::new(),
+                cut_audio_pcm_bytes: BTreeMap::new(),
+                final_audio_pcm_bytes: BTreeMap::new(),
+                audio_sample_ranges: BTreeMap::new(),
                 pgs_sha256: BTreeMap::new(),
                 first_video_ms: None,
                 first_audio_ms: BTreeMap::new(),
@@ -1326,8 +1429,42 @@ fn run_episode(
                 if let Some(pcm) = &prepared.source_pcm {
                     let stream = audio_stream(&cfg.tools.ffprobe, &tp.source, tp.track)?;
                     let codec = pcm_codec(&stream);
-                    let (hash, bytes) = pcm_sha256(cfg, &mut audit, pcm, 0, codec)?;
-                    cut_audio.insert(tp.id.clone(), (hash, bytes, codec));
+                    let range = source_audio_sample_range(
+                        cfg,
+                        &tp.source,
+                        tp.track,
+                        &stream,
+                        cut.as_ref().unwrap(),
+                    )?;
+                    let original = pcm_sha256(
+                        cfg,
+                        &mut audit,
+                        &tp.source,
+                        tp.track,
+                        codec,
+                        Some([range.start_sample, range.end_sample]),
+                    )?;
+                    let extracted = pcm_sha256(cfg, &mut audit, pcm, 0, codec, None)?;
+                    let matches_source = original == extracted;
+                    let record = audit.cut.as_mut().unwrap();
+                    record.source_audio_sha256.insert(tp.id.clone(), original.0);
+                    record
+                        .source_audio_pcm_bytes
+                        .insert(tp.id.clone(), original.1);
+                    record
+                        .cut_audio_sha256
+                        .insert(tp.id.clone(), extracted.0.clone());
+                    record
+                        .cut_audio_pcm_bytes
+                        .insert(tp.id.clone(), extracted.1);
+                    record.audio_sample_ranges.insert(tp.id.clone(), range);
+                    audit.save()?;
+                    ensure!(
+                        matches_source,
+                        "Cut audio {} differs from the corresponding PCM samples in the source",
+                        tp.id
+                    );
+                    cut_audio.insert(tp.id.clone(), (extracted.0, extracted.1, codec));
                 }
                 for (key, value) in prepared.tags {
                     t.tags.entry(key).or_insert(value);
@@ -1470,24 +1607,27 @@ fn run_episode(
                             .context("Missing extracted PCM reference")?
                             .clone();
                         let final_pcm =
-                            pcm_sha256(cfg, &mut audit, &partial, final_audio, source_pcm.2)?;
+                            pcm_sha256(cfg, &mut audit, &partial, final_audio, source_pcm.2, None)?;
+                        let matches_cut =
+                            source_pcm.0 == final_pcm.0 && source_pcm.1 == final_pcm.1;
+                        audit
+                            .cut
+                            .as_mut()
+                            .unwrap()
+                            .final_audio_sha256
+                            .insert(tp.id.clone(), final_pcm.0);
+                        audit
+                            .cut
+                            .as_mut()
+                            .unwrap()
+                            .final_audio_pcm_bytes
+                            .insert(tp.id.clone(), final_pcm.1);
+                        audit.save()?;
                         ensure!(
-                            source_pcm.0 == final_pcm.0 && source_pcm.1 == final_pcm.1,
+                            matches_cut,
                             "Final MKV audio {} differs from the original PCM samples",
                             tp.id
                         );
-                        audit
-                            .cut
-                            .as_mut()
-                            .unwrap()
-                            .audio_sha256
-                            .insert(tp.id.clone(), source_pcm.0);
-                        audit
-                            .cut
-                            .as_mut()
-                            .unwrap()
-                            .audio_pcm_bytes
-                            .insert(tp.id.clone(), source_pcm.1);
                         let first_audio =
                             first_packet_ms(&cfg.tools.ffprobe, &partial, "a", final_audio)?;
                         audit

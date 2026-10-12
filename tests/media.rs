@@ -192,11 +192,32 @@ fn cuts_shared_m2ts_and_verifies_final_tracks() {
             audit["cut"]["source_video_sha256"],
             audit["cut"]["final_video_sha256"]
         );
-        assert!(
-            audit["cut"]["audio_sha256"]["AudioTrack.01"]
-                .as_str()
-                .is_some()
+        let audio = &audit["cut"];
+        assert_eq!(
+            audio["source_audio_sha256"]["AudioTrack.01"],
+            audio["cut_audio_sha256"]["AudioTrack.01"]
         );
+        assert_eq!(
+            audio["cut_audio_sha256"]["AudioTrack.01"],
+            audio["final_audio_sha256"]["AudioTrack.01"]
+        );
+        assert_eq!(
+            audio["source_audio_pcm_bytes"]["AudioTrack.01"],
+            audio["cut_audio_pcm_bytes"]["AudioTrack.01"]
+        );
+        assert_eq!(
+            audio["cut_audio_pcm_bytes"]["AudioTrack.01"],
+            audio["final_audio_pcm_bytes"]["AudioTrack.01"]
+        );
+        assert!(
+            audio["cut_audio_pcm_bytes"]["AudioTrack.01"]
+                .as_u64()
+                .unwrap()
+                > 0
+        );
+        let range = &audio["audio_sample_ranges"]["AudioTrack.01"];
+        assert!(range["end_sample"].as_u64().unwrap() > range["start_sample"].as_u64().unwrap());
+        assert_eq!(range["sample_rate"], 48000);
     }
     let raw = |path: &Path, interval: Option<(f64, f64)>| {
         let mut command = Command::new("ffmpeg");

@@ -15,7 +15,10 @@ flowchart TD
     VG -- No --> ERR
 
     INT --> AU["ffmpeg: decode original M2TS audio; atrim interval; write PCM WAV"]
-    AU --> FL["flac: encode WAV with -8 and --verify"]
+    AU --> AH["ffprobe + ffmpeg: select source M2TS samples independently by sample count; hash source and cut PCM"]
+    AH --> AG{"Source and cut PCM hashes and byte counts match?"}
+    AG -- No --> ERR
+    AG -- Yes --> FL["flac: encode WAV with -8 and --verify"]
 
     INT --> PG{"PGS from shared M2TS configured?"}
     PG -- Yes --> PX["ffmpeg: extract complete PGS stream to SUP"]

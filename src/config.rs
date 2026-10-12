@@ -18,6 +18,9 @@ fn tools(s: &str) -> String {
 fn fps() -> String {
     "24000/1001".into()
 }
+fn is_zero(value: &i64) -> bool {
+    *value == 0
+}
 
 #[derive(Debug, Serialize, Clone)]
 pub struct Config {
@@ -460,26 +463,27 @@ pub struct Track {
     pub tags: BTreeMap<String, String>,
     #[serde(default)]
     pub codec: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub kind: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub only: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub except: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub overrides: BTreeMap<String, TrackOverride>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub headers: BTreeMap<String, String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub clean: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub shift_table: Option<ShiftTable>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub shift_frames: i64,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ycbcr_matrix: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub deletes: Vec<DeleteRange>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub additions: Vec<AddLines>,
 }
 impl Track {

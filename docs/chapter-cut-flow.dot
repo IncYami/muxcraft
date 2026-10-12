@@ -24,8 +24,11 @@ digraph ChapterCutFlow {
   subgraph cluster_audio {
     label="Audio"; color="#a9d8b8"; style="rounded"; fontname="DejaVu Sans";
     audio [label="ffmpeg: decode original M2TS audio,\natrim interval, write PCM WAV", fillcolor="#e7f7ed"];
+    audio_hash [label="ffprobe + ffmpeg: select original M2TS\nsamples by count; hash source and cut PCM", fillcolor="#e7f7ed"];
+    audio_ok [shape=diamond, label="Source and cut\nPCM match?", fillcolor="#fff2cc"];
     flac [label="flac: encode WAV\n-8 --verify", fillcolor="#e7f7ed"];
-    audio -> flac;
+    audio -> audio_hash -> audio_ok;
+    audio_ok -> flac [label="yes"];
   }
   subgraph cluster_pgs {
     label="PGS, if configured"; color="#ccb4e8"; style="rounded"; fontname="DejaVu Sans";
@@ -58,6 +61,7 @@ digraph ChapterCutFlow {
   interval -> pgs [style=dashed];
   interval -> chapter [style=dashed];
   video_ok -> error [label="no"];
+  audio_ok -> error [label="no"];
   video_ok -> mux [label="yes"];
   flac -> mux;
   pgs_cut -> mux;
