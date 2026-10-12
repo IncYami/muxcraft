@@ -29,7 +29,10 @@ let
   };
 in {
   environment.systemPackages = [
-    (import muxcraftSource { inherit pkgs; })
+    (import muxcraftSource {
+      inherit pkgs;
+      revision = muxcraftSource.rev;
+    })
   ];
 }
 ```
@@ -38,7 +41,7 @@ Run `sudo nixos-rebuild switch` to install or update muxcraft. Nix fetches the c
 
 ### Release archives
 
-Pushing a `v*` tag builds Linux x86_64, Windows x86_64, and macOS arm64 binaries and publishes them under [GitHub Releases](https://github.com/IncYami/muxcraft/releases) with a `SHA256SUMS` file. A manual workflow run builds the same archives without publishing a release. The archives contain muxcraft only: install FFmpeg, ffprobe, FLAC, and MKVToolNix separately and make them available on `PATH` (or configure `[tools]`). The Nix package includes these tools in its runtime path.
+Every successful push to `main` builds Linux x86_64, Windows x86_64, and macOS arm64 binaries and publishes a [GitHub Release](https://github.com/IncYami/muxcraft/releases) with a `SHA256SUMS` file. The release identifier uses the UTC build date and the source commit, such as `2026.10.12-g1a2b3c4`; `muxcraft -V` prints the same identifier. Previous releases remain available. A manual workflow run on another branch builds the same archives as workflow artifacts without publishing a release. The archives contain muxcraft only: install FFmpeg, ffprobe, FLAC, and MKVToolNix separately and make them available on `PATH` (or configure `[tools]`). The Nix package includes these tools in its runtime path.
 
 ## Build from source
 

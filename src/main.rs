@@ -10,7 +10,7 @@ enum Mode {
     Plan,
 }
 #[derive(Parser)]
-#[command(version, about = "Batch remuxing with auditable TOML configuration")]
+#[command(version = env!("MUXCRAFT_BUILD_VERSION"), about = "Batch remuxing with auditable TOML configuration")]
 struct Cli {
     /// TOML configuration file for the batch
     config: PathBuf,
