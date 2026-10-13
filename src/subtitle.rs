@@ -1,6 +1,6 @@
 use crate::config::{Correction, Track};
 use anyhow::{Context, Result, ensure};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Fps {
@@ -89,6 +89,13 @@ pub struct Cue {
     pub end: i64,
     pub text: String,
 }
+
+#[derive(Debug, Clone, Copy)]
+pub struct SubtitleCutoff {
+    pub end_ms: i64,
+    pub trimmed: bool,
+    pub comment: bool,
+}
 pub fn parse_srt(s: &str) -> Result<Vec<Cue>> {
     let normalized = s.trim_start_matches('\u{feff}').replace("\r\n", "\n");
     let split = regex::Regex::new(r"\n[ \t]*\n+")?;
@@ -164,7 +171,7 @@ pub fn process_srt(
     correction: &Correction,
     ep: &str,
     fps: Fps,
-    cutoff: Option<(i64, bool)>,
+    cutoff: Option<SubtitleCutoff>,
 ) -> Result<String> {
     let mut cues = Vec::new();
     for mut c in parse_srt(input)? {
@@ -187,7 +194,9 @@ pub fn process_srt(
             cues.sort_by_key(|c| c.start);
         }
     }
-    if let Some((end, trimmed)) = cutoff {
+    if let Some(cutoff) = cutoff {
+        let end = cutoff.end_ms;
+        let trimmed = cutoff.trimmed;
         cues.retain_mut(|c| {
             if trimmed {
                 if c.start >= end {
@@ -333,7 +342,7 @@ pub fn process_ass(
     correction: &Correction,
     ep: &str,
     fps: Fps,
-    cutoff: Option<(i64, bool)>,
+    cutoff: Option<SubtitleCutoff>,
 ) -> Result<Ass> {
     let mut doc = Ass::parse(input)?;
     doc.set_headers(&t.headers)?;
@@ -423,7 +432,10 @@ pub fn process_ass(
             }
         }
     }
-    if let Some((end, trimmed)) = cutoff {
+    if let Some(cutoff) = cutoff {
+        let end = cutoff.end_ms;
+        let trimmed = cutoff.trimmed;
+        let comment = cutoff.comment;
         // ASS stores event timestamps in centiseconds, so compare against the
         // last representable endpoint at or before the video end.
         let end = end / 10 * 10;
@@ -433,40 +445,47 @@ pub fn process_ass(
                 let mut f = doc.event(line)?;
                 let start = parse_time(&f[a])?;
                 let mut finish = parse_time(&f[b])?;
-                if trimmed {
+                let is_comment = line.starts_with("Comment:");
+                let comment_line = |fields: &[String]| format!("Comment: {}", fields.join(","));
+                if is_comment {
+                    // Comment mode preserves existing comments with their original timing.
+                    if comment {
+                        kept.push(line.clone());
+                    } else if trimmed && start < end {
+                        finish = finish.min(end);
+                        if finish > start && finish > 0 {
+                            f[b] = time(finish, true);
+                            kept.push(comment_line(&f));
+                        }
+                    } else if !trimmed && finish <= end && finish > start && finish > 0 {
+                        kept.push(line.clone());
+                    }
+                } else if trimmed {
                     if start >= end {
+                        if comment {
+                            kept.push(comment_line(&f));
+                        }
                         continue;
+                    }
+                    if comment && finish > end && finish > start {
+                        kept.push(comment_line(&f));
                     }
                     finish = finish.min(end);
                     if finish <= start || finish <= 0 {
                         continue;
                     }
                     f[b] = time(finish, true);
-                    kept.push(format!(
-                        "{}: {}",
-                        line.split_once(':').unwrap().0,
-                        f.join(",")
-                    ));
+                    kept.push(format!("Dialogue: {}", f.join(",")));
                 } else if finish <= end && finish > start && finish > 0 {
                     kept.push(line.clone());
+                } else if comment {
+                    kept.push(comment_line(&f));
                 }
             } else {
                 kept.push(line.clone());
             }
         }
         doc.lines = kept;
-    }
-    let mut used = BTreeSet::new();
-    let sty = index(&doc.event_format, "Style")?;
-    let resets = regex::Regex::new(r"\\r([^\\}]+)")?;
-    for line in &doc.lines {
-        if line.starts_with("Dialogue:") {
-            let f = doc.event(line)?;
-            used.insert(f[sty].trim_start_matches([' ', '\t', '*']).to_owned());
-            for c in resets.captures_iter(&f[txt]) {
-                used.insert(c[1].to_owned());
-            }
-        }
     }
     let mut section = String::new();
     doc.lines.retain(|line| {
@@ -478,15 +497,6 @@ pub fn process_ass(
         }
         if t.clean.iter().any(|s| s == "extradata") && section == "[Aegisub Extradata]" {
             return false;
-        }
-        if t.clean.iter().any(|s| s == "comments") && line.starts_with("Comment:") {
-            return false;
-        }
-        if t.clean.iter().any(|s| s == "styles") && line.starts_with("Style:") {
-            let values = fields(line.split_once(':').unwrap().1);
-            return values
-                .get(index(&doc.style_format, "Name").unwrap())
-                .is_some_and(|s| used.contains(s));
         }
         true
     });

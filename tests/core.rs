@@ -165,9 +165,7 @@ fn ass_preserves_commas_and_collects_overrides_without_fallback() {
     assert!(requests.iter().any(|r| r.name == "Other"));
     assert!(requests.iter().any(|r| r.name == "Lato"));
     assert!(!requests.iter().any(|r| r.name == "Unused"));
-    let t = track(
-        "clean=['styles','comments','garbage','extradata']\nheaders={'YCbCr Matrix'='TV.709'}",
-    );
+    let t = track("clean=['garbage','extradata']\nheaders={'YCbCr Matrix'='TV.709'}");
     let out = subtitle::process_ass(
         ASS,
         &t,
@@ -180,7 +178,7 @@ fn ass_preserves_commas_and_collects_overrides_without_fallback() {
     .dump();
     assert!(out.contains("hello,{\\fnAlt"));
     assert!(out.contains("YCbCr Matrix: TV.709"));
-    assert!(!out.contains("Style: Unused"));
+    assert!(out.contains("Style: Unused"));
     assert!(out.contains("Style: Sign"));
     let missing = ASS.replace(",Default,", ",*Missing,");
     let cleaned = subtitle::process_ass(
@@ -192,7 +190,7 @@ fn ass_preserves_commas_and_collects_overrides_without_fallback() {
         None,
     )
     .unwrap();
-    assert!(!cleaned.dump().contains("Style: Default"));
+    assert!(cleaned.dump().contains("Style: Default"));
     let requests = fonts::requests(&cleaned).unwrap();
     assert!(!requests.iter().any(|r| r.name == "Lato"));
     assert!(requests.iter().any(|r| r.name == "Alt"));
@@ -246,7 +244,11 @@ fn video_truncation_handles_srt_and_ass_boundaries() {
         &Correction::default(),
         "01",
         fps,
-        Some((2000, true)),
+        Some(subtitle::SubtitleCutoff {
+            end_ms: 2000,
+            trimmed: true,
+            comment: false,
+        }),
     )
     .unwrap();
     let cues = subtitle::parse_srt(&trimmed).unwrap();
@@ -258,7 +260,11 @@ fn video_truncation_handles_srt_and_ass_boundaries() {
         &Correction::default(),
         "01",
         fps,
-        Some((2000, false)),
+        Some(subtitle::SubtitleCutoff {
+            end_ms: 2000,
+            trimmed: false,
+            comment: false,
+        }),
     )
     .unwrap();
     assert_eq!(subtitle::parse_srt(&strict).unwrap().len(), 1);
@@ -270,7 +276,11 @@ fn video_truncation_handles_srt_and_ass_boundaries() {
         &Correction::default(),
         "01",
         fps,
-        Some((2000, true)),
+        Some(subtitle::SubtitleCutoff {
+            end_ms: 2000,
+            trimmed: true,
+            comment: false,
+        }),
     )
     .unwrap()
     .dump();
@@ -282,11 +292,85 @@ fn video_truncation_handles_srt_and_ass_boundaries() {
         &Correction::default(),
         "01",
         fps,
-        Some((1005, true)),
+        Some(subtitle::SubtitleCutoff {
+            end_ms: 1005,
+            trimmed: true,
+            comment: false,
+        }),
     )
     .unwrap()
     .dump();
     assert!(!quantized.contains(",,b"));
+}
+#[test]
+fn ass_video_truncation_can_comment_removed_dialogue() {
+    let fps = Fps::parse("24").unwrap();
+    let t = track("clean=['garbage','extradata']");
+    let ass = "[Script Info]\n[V4+ Styles]\nFormat: Name, Fontname, Bold, Italic\nStyle: Default,Arial,0,0\nStyle: OnlyAfter,Arial,0,0\nStyle: Unused,Arial,0,0\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,crossing\nDialogue: 0,0:00:03.00,0:00:04.00,OnlyAfter,,0,0,0,,after\nComment: 0,0:00:01.50,0:00:03.00,Default,,0,0,0,,crossing-comment\nComment: 0,0:00:03.00,0:00:04.00,OnlyAfter,,0,0,0,,after-comment\n";
+    let out = subtitle::process_ass(
+        ass,
+        &t,
+        &Correction::default(),
+        "01",
+        fps,
+        Some(subtitle::SubtitleCutoff {
+            end_ms: 2000,
+            trimmed: true,
+            comment: true,
+        }),
+    )
+    .unwrap()
+    .dump();
+    let generated = out
+        .find("Comment: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,crossing")
+        .unwrap();
+    let dialogue = out
+        .find("Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,crossing")
+        .unwrap();
+    assert!(generated < dialogue);
+    assert!(out.contains("Comment: 0,0:00:01.50,0:00:03.00,Default,,0,0,0,,crossing-comment"));
+    assert!(out.contains("Comment: 0,0:00:03.00,0:00:04.00,OnlyAfter,,0,0,0,,after-comment"));
+    assert!(out.contains("Comment: 0,0:00:03.00,0:00:04.00,OnlyAfter,,0,0,0,,after"));
+    assert!(out.contains("Style: OnlyAfter,Arial,0,0"));
+    assert!(out.contains("Style: Unused,Arial,0,0"));
+
+    let preserved = subtitle::process_ass(
+        ass,
+        &track(""),
+        &Correction::default(),
+        "01",
+        fps,
+        Some(subtitle::SubtitleCutoff {
+            end_ms: 2000,
+            trimmed: true,
+            comment: true,
+        }),
+    )
+    .unwrap()
+    .dump();
+    assert!(
+        preserved.contains("Comment: 0,0:00:01.50,0:00:03.00,Default,,0,0,0,,crossing-comment")
+    );
+    assert!(preserved.contains("Comment: 0,0:00:03.00,0:00:04.00,OnlyAfter,,0,0,0,,after-comment"));
+    assert_eq!(preserved.matches("crossing-comment").count(), 1);
+    assert_eq!(preserved.matches("after-comment").count(), 1);
+
+    let strict = subtitle::process_ass(
+        ass,
+        &track(""),
+        &Correction::default(),
+        "01",
+        fps,
+        Some(subtitle::SubtitleCutoff {
+            end_ms: 2000,
+            trimmed: false,
+            comment: true,
+        }),
+    )
+    .unwrap()
+    .dump();
+    assert!(strict.contains("Comment: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,crossing"));
+    assert!(!strict.contains("Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,crossing"));
 }
 #[test]
 fn negative_shift_keeps_srt_line_at_zero() {

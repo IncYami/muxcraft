@@ -4,7 +4,7 @@ use crate::{
     cuts::{self, ResolvedCut},
     fonts::{FontIndex, requests},
     pgs,
-    subtitle::{self, Ass, Fps},
+    subtitle::{self, Ass, Fps, SubtitleCutoff},
     tmdb,
 };
 use anyhow::{Context, Result, bail, ensure};
@@ -940,7 +940,7 @@ fn load_sub(
     path: &Path,
     ep: &str,
     video: &TrackPlan,
-    cutoff: Option<(i64, bool)>,
+    cutoff: Option<SubtitleCutoff>,
 ) -> Result<(String, Option<Ass>)> {
     let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
     let is_srt = extension.eq_ignore_ascii_case("srt");
@@ -981,10 +981,8 @@ fn load_sub(
     if is_ass {
         let mut effective = t.clone();
         for (enabled, operation) in [
-            (cfg.subtitle_processing.clean_styles, "styles"),
             (cfg.subtitle_processing.clean_garbage, "garbage"),
             (cfg.subtitle_processing.clean_extradata, "extradata"),
-            (cfg.subtitle_processing.clean_comments, "comments"),
         ] {
             if enabled && !effective.clean.iter().any(|op| op == operation) {
                 effective.clean.push(operation.into());
@@ -1127,7 +1125,7 @@ fn subtitle_cutoff(
     cfg: &Config,
     plan: &EpisodePlan,
     cut: Option<&ResolvedCut>,
-) -> Result<Option<(i64, bool)>> {
+) -> Result<Option<SubtitleCutoff>> {
     let Some(mode) = &cfg.subtitle_processing.truncate_video else {
         return Ok(None);
     };
@@ -1162,7 +1160,11 @@ fn subtitle_cutoff(
         end_ms > 0,
         "Video end must be positive for subtitle truncation"
     );
-    Ok(Some((end_ms, mode.trimmed)))
+    Ok(Some(SubtitleCutoff {
+        end_ms,
+        trimmed: mode.trimmed,
+        comment: mode.comment,
+    }))
 }
 fn has_text_subtitles(cfg: &Config, plan: &EpisodePlan) -> bool {
     plan.tracks

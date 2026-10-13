@@ -232,10 +232,8 @@ struct MuxSettings {
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct SubtitleProcessing {
-    pub(crate) clean_styles: bool,
     pub(crate) clean_garbage: bool,
     pub(crate) clean_extradata: bool,
-    pub(crate) clean_comments: bool,
     pub(crate) ycbcr_matrix: Option<String>,
     pub(crate) truncate_video: Option<TruncateVideo>,
 }
@@ -244,10 +242,14 @@ pub(crate) struct SubtitleProcessing {
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct TruncateVideo {
     pub(crate) trimmed: bool,
+    pub(crate) comment: bool,
 }
 impl Default for TruncateVideo {
     fn default() -> Self {
-        Self { trimmed: true }
+        Self {
+            trimmed: true,
+            comment: false,
+        }
     }
 }
 
@@ -1199,7 +1201,7 @@ impl Config {
                 let eff = t.effective(&ep.id);
                 for op in &eff.clean {
                     ensure!(
-                        ["styles", "garbage", "extradata", "comments"].contains(&op.as_str()),
+                        ["garbage", "extradata"].contains(&op.as_str()),
                         "Unknown clean operation: {op}"
                     );
                 }
@@ -1589,4 +1591,20 @@ fn disable_episode_tracks(
     }
     let _ = episode;
     Ok(())
+}
+
+#[cfg(test)]
+mod truncate_video_tests {
+    use super::TruncateVideo;
+
+    #[test]
+    fn truncate_video_defaults_and_deserializes_comment_mode() {
+        let defaults: TruncateVideo = toml::from_str("").unwrap();
+        assert!(defaults.trimmed);
+        assert!(!defaults.comment);
+
+        let configured: TruncateVideo = toml::from_str("trimmed = false\ncomment = true").unwrap();
+        assert!(!configured.trimmed);
+        assert!(configured.comment);
+    }
 }
