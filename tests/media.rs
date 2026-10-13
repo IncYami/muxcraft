@@ -172,6 +172,17 @@ fn cuts_shared_m2ts_and_verifies_final_tracks() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("muxcraft: Run (2 episodes)"), "{stderr}");
+    assert!(stderr.contains("Episode 01 (1/2)"), "{stderr}");
+    assert!(
+        stderr.contains("Starting: Cut video and hash source"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("Done: Verify cut video hash and packet count"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("Batch complete"), "{stderr}");
     assert!(
         !stderr.contains("skipping unknown chunk 'JUNK'"),
         "{stderr}"

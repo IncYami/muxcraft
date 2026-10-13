@@ -72,7 +72,9 @@ pub fn requests(doc: &Ass) -> Result<BTreeSet<Request>> {
         let name = f[style_col].trim_start_matches([' ', '\t', '*']);
         let base = styles.get(name).cloned();
         if base.is_none() && missing_styles.insert(name.to_owned()) {
-            eprintln!("Warning: ASS style '{name}' is missing; skipping its implicit font.");
+            crate::ui::warning(&format!(
+                "ASS style '{name}' is missing; skipping its implicit font."
+            ));
         }
         let mut current = base.clone();
         let mut reset_base = base.clone();
@@ -123,9 +125,9 @@ pub fn requests(doc: &Ass) -> Result<BTreeSet<Request>> {
                             } else {
                                 let style = styles.get(value).cloned();
                                 if style.is_none() && missing_styles.insert(value.to_owned()) {
-                                    eprintln!(
-                                        "Warning: ASS style '{value}' is missing; skipping its implicit font."
-                                    );
+                                    crate::ui::warning(&format!(
+                                        "ASS style '{value}' is missing; skipping its implicit font."
+                                    ));
                                 }
                                 style
                             };
@@ -242,10 +244,10 @@ impl FontIndex {
         for req in requests {
             if let Some(face) = self.select(req) {
                 if face.weight != req.weight || face.italic != req.italic {
-                    eprintln!(
-                        "Warning: font {} requested weight {}, italic {}; found {} weight {}, italic {}",
+                    crate::ui::warning(&format!(
+                        "Font {} requested weight {}, italic {}; found {} weight {}, italic {}",
                         req.name, req.weight, req.italic, face.family, face.weight, face.italic
-                    );
+                    ));
                 }
                 sources
                     .entry(face.source.clone())
@@ -256,10 +258,10 @@ impl FontIndex {
                         req.name, req.weight, req.italic
                     ));
             } else {
-                eprintln!(
-                    "Warning: font '{}' was not found (weight {}, italic {}).",
+                crate::ui::warning(&format!(
+                    "Font '{}' was not found (weight {}, italic {}).",
                     req.name, req.weight, req.italic
-                );
+                ));
             }
         }
         std::fs::create_dir_all(dir)?;

@@ -2,6 +2,7 @@ use console::Style;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::io::IsTerminal;
 use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 static VERBOSE: OnceLock<bool> = OnceLock::new();
 
@@ -22,12 +23,135 @@ pub fn verbose() -> bool {
     *VERBOSE.get().unwrap_or(&false)
 }
 
-pub fn stage(episode: &str, message: &str) {
-    if std::io::IsTerminal::is_terminal(&std::io::stderr()) {
-        let label = Style::new().cyan().bold().apply_to(episode);
-        eprintln!("{label}  {message}");
+fn terminal() -> bool {
+    std::io::stderr().is_terminal()
+}
+
+pub fn batch(mode: &str, count: usize) {
+    let noun = if count == 1 { "episode" } else { "episodes" };
+    if terminal() {
+        eprintln!(
+            "{}  {} {}",
+            Style::new().cyan().bold().apply_to("muxcraft"),
+            count,
+            noun
+        );
+        eprintln!("  {}", Style::new().dim().apply_to(mode));
     } else {
-        eprintln!("{episode}: {message}");
+        eprintln!("muxcraft: {mode} ({count} {noun})");
+    }
+}
+
+pub fn episode(id: &str, index: usize, total: usize, title: &str) {
+    if terminal() {
+        eprintln!();
+        eprintln!(
+            "{}  {}  {}",
+            Style::new().cyan().bold().apply_to(format!("Episode {id}")),
+            Style::new().dim().apply_to(format!("{index}/{total}")),
+            title
+        );
+    } else {
+        eprintln!("Episode {id} ({index}/{total}): {title}");
+    }
+}
+
+pub fn detail(message: &str) {
+    eprintln!("    {message}");
+}
+
+pub fn complete(id: &str, output: &std::path::Path, elapsed: Duration) {
+    let label = Style::new().green().bold().apply_to("Complete");
+    eprintln!(
+        "{label}  Episode {id} in {}  → {}",
+        duration(elapsed),
+        output.display()
+    );
+}
+
+pub fn checked(count: usize, elapsed: Duration) {
+    let label = Style::new().green().bold().apply_to("Checked");
+    let noun = if count == 1 { "episode" } else { "episodes" };
+    eprintln!("{label}  {count} {noun} in {}", duration(elapsed));
+}
+
+pub fn batch_complete(count: usize, elapsed: Duration) {
+    let label = Style::new().green().bold().apply_to("Batch complete");
+    let noun = if count == 1 { "episode" } else { "episodes" };
+    eprintln!("{label}  {count} {noun} in {}", duration(elapsed));
+}
+
+fn duration(elapsed: Duration) -> String {
+    let seconds = elapsed.as_secs();
+    if seconds >= 60 {
+        format!("{}m {:02}s", seconds / 60, seconds % 60)
+    } else {
+        format!("{:.1}s", elapsed.as_secs_f64())
+    }
+}
+
+pub struct Step {
+    label: String,
+    started: Instant,
+    finished: bool,
+}
+
+impl Step {
+    pub fn new(label: impl Into<String>) -> Self {
+        let label = label.into();
+        if terminal() {
+            eprintln!("  {} {label}", Style::new().cyan().apply_to("›"));
+        } else {
+            eprintln!("  Starting: {label}");
+        }
+        Self {
+            label,
+            started: Instant::now(),
+            finished: false,
+        }
+    }
+
+    pub fn done(mut self) {
+        self.finished = true;
+        if terminal() {
+            eprintln!(
+                "  {} {}  {}",
+                Style::new().green().apply_to("✓"),
+                self.label,
+                Style::new()
+                    .dim()
+                    .apply_to(duration(self.started.elapsed()))
+            );
+        } else {
+            eprintln!(
+                "  Done: {} ({})",
+                self.label,
+                duration(self.started.elapsed())
+            );
+        }
+    }
+}
+
+impl Drop for Step {
+    fn drop(&mut self) {
+        if !self.finished {
+            if terminal() {
+                eprintln!(
+                    "  {} {}  {}",
+                    Style::new().red().apply_to("✗"),
+                    self.label,
+                    Style::new()
+                        .dim()
+                        .apply_to(duration(self.started.elapsed()))
+                );
+            } else {
+                eprintln!(
+                    "  Failed: {} ({})",
+                    self.label,
+                    duration(self.started.elapsed())
+                );
+            }
+        }
     }
 }
 

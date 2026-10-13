@@ -7,7 +7,9 @@ use muxcraft::{
 use std::{collections::BTreeMap, path::Path, process::Command};
 
 fn documentation_config(name: &str) -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/configs").join(name)
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("docs/configs")
+        .join(name)
 }
 
 #[test]

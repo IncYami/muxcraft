@@ -1031,9 +1031,9 @@ fn matrix_from_metadata(space: &str, video_range: &str) -> String {
         "smpte240m" => "240M",
         "fcc" => "FCC",
         unknown => {
-            eprintln!(
-                "Warning: video matrix '{unknown}' cannot be represented in ASS; using None."
-            );
+            crate::ui::warning(&format!(
+                "Video matrix '{unknown}' cannot be represented in ASS; using None."
+            ));
             return "None".into();
         }
     };
@@ -1041,7 +1041,9 @@ fn matrix_from_metadata(space: &str, video_range: &str) -> String {
         "pc" => "PC",
         "tv" => "TV",
         unknown => {
-            eprintln!("Warning: video range '{unknown}' is unspecified; assuming limited range.");
+            crate::ui::warning(&format!(
+                "Video range '{unknown}' is unspecified; assuming limited range."
+            ));
             "TV"
         }
     };
@@ -1422,19 +1424,19 @@ fn chapter_data(
             if let Some(difference) = difference_ms {
                 let tolerance_ms = (2000.0 * fps.den as f64 / fps.num as f64).ceil() as i64;
                 if difference.abs() > tolerance_ms {
-                    eprintln!(
-                        "Warning: episode {} video duration differs from BDMV playlist by {} ms (video: {} ms; playlist: {} ms).",
+                    crate::ui::warning(&format!(
+                        "Episode {} video duration differs from BDMV playlist by {} ms (video: {} ms; playlist: {} ms).",
                         ep.id,
                         difference,
                         duration.as_ref().unwrap().duration_ms,
                         ch.duration_ms
-                    );
+                    ));
                 }
             } else {
-                eprintln!(
-                    "Warning: episode {} video duration is unavailable; using BDMV playlist duration for chapter cutoff.",
+                crate::ui::warning(&format!(
+                    "Episode {} video duration is unavailable; using BDMV playlist duration for chapter cutoff.",
                     ep.id
-                );
+                ));
             }
             let timing = ChapterTiming {
                 playlist_duration_ms: ch.duration_ms,
@@ -1508,6 +1510,8 @@ fn validate_fps(cfg: &Config, path: &Path, relative: usize) -> Result<()> {
     Ok(())
 }
 pub fn check(cfg: &Config, base: &Path, plans: &[EpisodePlan]) -> Result<()> {
+    let started = std::time::Instant::now();
+    crate::ui::batch("Check", plans.len());
     let mut cache = FontCache::new();
     let mut identifiers = BTreeMap::new();
     if cfg.episode_configs.is_empty() {
@@ -1523,6 +1527,7 @@ pub fn check(cfg: &Config, base: &Path, plans: &[EpisodePlan]) -> Result<()> {
             )?;
         }
     }
+    crate::ui::checked(plans.len(), started.elapsed());
     Ok(())
 }
 fn check_cached(
@@ -1533,18 +1538,17 @@ fn check_cached(
     identifiers: &mut BTreeMap<(String, PathBuf), Identification>,
 ) -> Result<()> {
     for plan in plans {
-        crate::ui::stage(&plan.episode, "Preflight and check");
+        let check_step = crate::ui::Step::new(format!("Check episode {}", plan.episode));
         let resolved_cut = if plan.cut.is_some() {
             let cut = cuts::resolve(cfg, plan)?.context("Missing resolved cut")?;
-            eprintln!(
-                "{}: cut {:.9}..{:.9} s; start mark offset {:+.3} ms; end mark offset {}",
-                plan.episode,
+            crate::ui::detail(&format!(
+                "Cut {:.9}..{:.9} s; start mark offset {:+.3} ms; end mark offset {}",
                 cut.start_seconds,
                 cut.end_seconds,
                 cut.start_deviation_ms,
                 cut.end_deviation_ms
                     .map_or_else(|| "playlist OUT".into(), |ms| format!("{ms:+.3} ms"))
-            );
+            ));
             Some(cut)
         } else {
             None
@@ -1605,10 +1609,10 @@ fn check_cached(
         if cfg.fonts.enabled {
             for req in used {
                 if index.select(&req).is_none() {
-                    eprintln!(
-                        "Warning: font '{}' was not found (weight {}, italic {}).",
+                    crate::ui::warning(&format!(
+                        "Font '{}' was not found (weight {}, italic {}).",
                         req.name, req.weight, req.italic
-                    );
+                    ));
                 }
             }
         }
@@ -1626,12 +1630,11 @@ fn check_cached(
             .find(|ep| ep.id == plan.episode)
             .unwrap();
         chapter_data(cfg, base, ep, plan, None)?;
-        eprintln!(
-            "{}: {} tracks, paths/subtitles/fonts/chapters checked",
-            plan.episode,
+        crate::ui::detail(&format!(
+            "{} tracks; paths, subtitles, fonts, and chapters checked",
             plan.tracks.len()
-        );
-        crate::ui::stage(&plan.episode, "Check complete");
+        ));
+        check_step.done();
     }
     Ok(())
 }
@@ -1820,7 +1823,6 @@ fn run_episode(
     };
     audit.save()?;
     let result = (|| -> Result<()> {
-        crate::ui::stage(&ep.id, "Preflight and check passed");
         let cut = cuts::resolve(cfg, plan)?;
         let cutoff = if has_text_subtitles(cfg, plan) {
             subtitle_cutoff(cfg, plan, cut.as_ref())?
@@ -1829,7 +1831,7 @@ fn run_episode(
         };
         let mut cut_video_path = None;
         if let Some(ref cut) = cut {
-            crate::ui::stage(&ep.id, "Cut video");
+            let cut_step = crate::ui::Step::new("Cut video and hash source");
             audit.cut = Some(CutAudit {
                 resolved: cut.clone(),
                 source_video_sha256: None,
@@ -1853,14 +1855,14 @@ fn run_episode(
             let video = &plan.tracks[0];
             let (path, source_hash) =
                 cut_video(cfg, &mut audit, &plan.source, video.track, cut, &plan.work)?;
-            crate::ui::stage(&ep.id, "Cut video complete");
             ensure!(
                 source_hash.1 == cut.video_frames,
                 "Cut requested {} video frames but copied {}",
                 cut.video_frames,
                 source_hash.1
             );
-            crate::ui::stage(&ep.id, "Verify cut video hash and packet count");
+            cut_step.done();
+            let verify_step = crate::ui::Step::new("Verify cut video hash and packet count");
             let copied_hash = video_sha256(cfg, &mut audit, &path, 0, None)?;
             ensure!(
                 source_hash == copied_hash,
@@ -1872,11 +1874,11 @@ fn run_episode(
             record.copied_video_sha256 = Some(copied_hash.0);
             record.copied_video_packets = Some(copied_hash.1);
             audit.save()?;
-            crate::ui::stage(&ep.id, "Cut video verification complete");
+            verify_step.done();
             cut_video_path = Some(path);
         }
         if plan.sources.len() > 1 {
-            crate::ui::stage(&ep.id, "Join source clips");
+            let join_step = crate::ui::Step::new("Join source clips");
             let mut join = vec!["-o".into(), plan.source.to_string_lossy().into_owned()];
             join.push(plan.sources[0].to_string_lossy().into_owned());
             for source in plan.sources.iter().skip(1) {
@@ -1887,7 +1889,7 @@ fn run_episode(
                 plan.source.is_file(),
                 "mkvmerge did not create the joined source"
             );
-            crate::ui::stage(&ep.id, "Source join complete");
+            join_step.done();
         }
         let dir = plan.output.parent().unwrap();
         std::fs::create_dir_all(dir)?;
@@ -1939,9 +1941,9 @@ fn run_episode(
         let mut cut_audio = BTreeMap::new();
         let mut subtitle_index = 0;
         for (file_index, tp) in plan.tracks.iter().enumerate() {
+            let track_step = crate::ui::Step::new(format!("Prepare {} ({})", tp.id, tp.category));
             let mut t = config_track(cfg, &tp.id, &ep.id);
             let (path, id) = if tp.category == "audio" {
-                crate::ui::stage(&ep.id, &format!("Audio {}: extract and prepare", tp.id));
                 let selected_cut = cut.as_ref().filter(|_| tp.source == plan.source);
                 let stream = audio_stream(&cfg.tools.ffprobe, &tp.source, tp.track)?;
                 let range = if let Some(selected_cut) = selected_cut
@@ -2009,10 +2011,6 @@ fn run_episode(
                 let id = track_id(&identify(&cfg.tools.mkvmerge, &prepared.path)?, "audio", 0)?;
                 (prepared.path, id)
             } else if is_pgs(cfg, &tp.id) {
-                crate::ui::stage(
-                    &ep.id,
-                    &format!("Subtitle {}: inspect and extract PGS", tp.id),
-                );
                 let ident = identify(&cfg.tools.mkvmerge, &tp.source)?;
                 let (id, subtitle_index) = pgs_track(&ident, t.track)?;
                 if tp
@@ -2057,10 +2055,6 @@ fn run_episode(
                     (extracted, id)
                 }
             } else if tp.category == "subtitle" {
-                crate::ui::stage(
-                    &ep.id,
-                    &format!("Subtitle {}: process and collect fonts", tp.id),
-                );
                 let (text, doc) = load_sub(cfg, &t, &tp.source, &ep.id, &plan.tracks[0], cutoff)?;
                 let ext = if let Some(doc) = doc {
                     used.extend(requests(&doc)?);
@@ -2108,7 +2102,7 @@ fn run_episode(
                 }
             }
             add_input(&mut args, tp, &t, &path, id, &plan.vars, &plan.work)?;
-            crate::ui::stage(&ep.id, &format!("Track {} prepared", tp.id));
+            track_step.done();
         }
         if cfg.fonts.enabled {
             audit.fonts = index.collect(&used, &plan.work.join("fonts"))?;
@@ -2130,12 +2124,12 @@ fn run_episode(
             }
         }
         args.extend(["--track-order".into(), order.join(",")]);
-        crate::ui::stage(&ep.id, "Mux output with mkvmerge");
+        let mux_step = crate::ui::Step::new("Mux output");
         audit.command(&cfg.tools.mkvmerge, args, true)?;
-        crate::ui::stage(&ep.id, "Mux complete");
         ensure!(partial.is_file(), "mkvmerge did not produce an output file");
+        mux_step.done();
         if cut.is_some() {
-            crate::ui::stage(&ep.id, "Verify final video hash and packet count");
+            let verify_video = crate::ui::Step::new("Verify final video hash and packet count");
             let final_hash = video_sha256(cfg, &mut audit, &partial, 0, None)?;
             ensure!(
                 audit.cut.as_ref().unwrap().source_video_sha256.as_deref()
@@ -2147,11 +2141,13 @@ fn run_episode(
             audit.cut.as_mut().unwrap().final_video_packets = Some(final_hash.1);
             let first_video = first_packet_ms(&cfg.tools.ffprobe, &partial, "v", 0)?;
             audit.cut.as_mut().unwrap().first_video_ms = Some(first_video);
+            verify_video.done();
             let mut final_audio = 0;
             for tp in &plan.tracks {
                 if tp.category == "audio" {
                     if tp.source == plan.source {
-                        crate::ui::stage(&ep.id, &format!("Verify final audio hash: {}", tp.id));
+                        let verify_audio =
+                            crate::ui::Step::new(format!("Verify final audio hash: {}", tp.id));
                         let source_pcm = cut_audio
                             .get(&tp.id)
                             .context("Missing extracted PCM reference")?
@@ -2192,12 +2188,13 @@ fn run_episode(
                             tp.id,
                             first_audio - first_video
                         );
+                        verify_audio.done();
                     }
                     final_audio += 1;
                 }
             }
             for (id, path, index) in cut_pgs {
-                crate::ui::stage(&ep.id, &format!("Verify final PGS hash: {id}"));
+                let verify_pgs = crate::ui::Step::new(format!("Verify final PGS hash: {id}"));
                 let extracted = pgs_sha256(cfg, &mut audit, &path, 0)?;
                 let muxed = pgs_sha256(cfg, &mut audit, &partial, index)?;
                 ensure!(
@@ -2205,10 +2202,11 @@ fn run_episode(
                     "Final MKV PGS {id} differs from the extracted PGS packets"
                 );
                 audit.cut.as_mut().unwrap().pgs_sha256.insert(id, extracted);
+                verify_pgs.done();
             }
             audit.save()?;
         }
-        crate::ui::stage(&ep.id, "Publish output");
+        let publish_step = crate::ui::Step::new("Publish output");
         std::fs::hard_link(&partial, &plan.output).with_context(|| {
             format!(
                 "Publishing {} without overwriting; temporary file kept at {}",
@@ -2217,7 +2215,6 @@ fn run_episode(
             )
         })?;
         std::fs::remove_file(partial)?;
-        crate::ui::stage(&ep.id, "Output published");
         audit.state = "complete".into();
         audit.save()?;
         let report = plan.output.with_extension("audit.json");
@@ -2227,6 +2224,7 @@ fn run_episode(
             report.display()
         );
         std::fs::copy(plan.work.join("audit.json"), report)?;
+        publish_step.done();
         Ok(())
     })();
     if let Err(e) = &result {
@@ -2240,6 +2238,8 @@ fn run_episode(
     result
 }
 pub fn run(cfg: &Config, base: &Path, plans: &[EpisodePlan]) -> Result<()> {
+    let batch_started = std::time::Instant::now();
+    crate::ui::batch("Run", plans.len());
     for plan in plans {
         ensure!(
             !plan.output.exists(),
@@ -2284,7 +2284,7 @@ pub fn run(cfg: &Config, base: &Path, plans: &[EpisodePlan]) -> Result<()> {
         }
     }
     let mut errors = Vec::new();
-    for plan in plans {
+    for (index, plan) in plans.iter().enumerate() {
         let episode_started = std::time::Instant::now();
         let episode_cfg = cfg.for_episode(&plan.episode);
         let ep = episode_cfg
@@ -2293,7 +2293,7 @@ pub fn run(cfg: &Config, base: &Path, plans: &[EpisodePlan]) -> Result<()> {
             .find(|e| e.id == plan.episode)
             .or_else(|| cfg.episodes.iter().find(|e| e.id == plan.episode))
             .unwrap();
-        crate::ui::stage(&ep.id, "Starting episode");
+        crate::ui::episode(&ep.id, index + 1, plans.len(), &plan.title);
         let mut client = episode_cfg
             .tmdb
             .as_ref()
@@ -2306,13 +2306,7 @@ pub fn run(cfg: &Config, base: &Path, plans: &[EpisodePlan]) -> Result<()> {
             }
             crate::ui::error(&format!("Episode {} failed: {e:#}", ep.id));
         } else {
-            crate::ui::stage(
-                &ep.id,
-                &format!(
-                    "Episode complete in {:.1}s",
-                    episode_started.elapsed().as_secs_f64()
-                ),
-            );
+            crate::ui::complete(&ep.id, &plan.output, episode_started.elapsed());
         }
     }
     ensure!(
@@ -2320,6 +2314,7 @@ pub fn run(cfg: &Config, base: &Path, plans: &[EpisodePlan]) -> Result<()> {
         "Batch finished with failures in episodes: {}",
         errors.join(", ")
     );
+    crate::ui::batch_complete(plans.len(), batch_started.elapsed());
     Ok(())
 }
 
