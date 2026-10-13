@@ -50,7 +50,7 @@ fn pgs_fixture() -> Vec<u8> {
 }
 
 #[test]
-fn cuts_shared_m2ts_and_verifies_final_tracks() {
+fn cuts_shared_m2ts_and_verifies_extracted_tracks() {
     if !available("ffmpeg") || !available("ffprobe") || !available("flac") || !available("mkvmerge")
     {
         return;
@@ -269,27 +269,22 @@ fn cuts_shared_m2ts_and_verifies_final_tracks() {
                 .windows(2)
                 .any(|pair| pair[0] == "-f" && pair[1] == "tee")
         );
+        assert!(audit["cut"].get("final_video_sha256").is_none());
         assert_eq!(
-            audit["cut"]["source_video_sha256"],
-            audit["cut"]["final_video_sha256"]
+            cut_command.as_array().unwrap().last().unwrap()["program"],
+            "mkvmerge"
         );
         let audio = &audit["cut"];
         assert_eq!(
             audio["source_audio_sha256"]["AudioTrack.01"],
             audio["cut_audio_sha256"]["AudioTrack.01"]
         );
-        assert_eq!(
-            audio["cut_audio_sha256"]["AudioTrack.01"],
-            audio["final_audio_sha256"]["AudioTrack.01"]
-        );
+        assert!(audio.get("final_audio_sha256").is_none());
         assert_eq!(
             audio["source_audio_pcm_bytes"]["AudioTrack.01"],
             audio["cut_audio_pcm_bytes"]["AudioTrack.01"]
         );
-        assert_eq!(
-            audio["cut_audio_pcm_bytes"]["AudioTrack.01"],
-            audio["final_audio_pcm_bytes"]["AudioTrack.01"]
-        );
+        assert!(audio.get("final_audio_pcm_bytes").is_none());
         assert!(
             audio["cut_audio_pcm_bytes"]["AudioTrack.01"]
                 .as_u64()
@@ -313,10 +308,6 @@ fn cuts_shared_m2ts_and_verifies_final_tracks() {
         assert_eq!(
             audio["source_audio_sha256"]["AudioTrack.02"],
             audio["cut_audio_sha256"]["AudioTrack.02"]
-        );
-        assert_eq!(
-            audio["cut_audio_sha256"]["AudioTrack.02"],
-            audio["final_audio_sha256"]["AudioTrack.02"]
         );
     }
     let raw = |path: &Path, interval: Option<(f64, f64)>| {

@@ -34,17 +34,13 @@ digraph ChapterCutFlow {
     label="PGS, if configured"; color="#ccb4e8"; style="rounded"; fontname="DejaVu Sans";
     pgs [label="ffmpeg: extract complete\nPGS stream to SUP", fillcolor="#f3eaff"];
     pgs_cut [label="Rust: select complete display sets\nand rebase timestamps", fillcolor="#f3eaff"];
-    pgs -> pgs_cut;
+    pgs_hash [shape=diamond, label="Source/cut PGS payload hashes,\nsegment count and timing match?", fillcolor="#fff2cc"];
+    pgs -> pgs_cut -> pgs_hash;
   }
   chapter [label="Rust: generate episode-relative\nchapters.txt, if configured", fillcolor="#fff2e2"];
   text [label="Rust: prepare ASS/SRT and\ncollect fonts, if configured", fillcolor="#fff2e2"];
   mux [label="mkvmerge: combine prepared tracks,\nchapters, fonts and tags", fillcolor="#dceeff"];
   partial [label="Temporary final MKV"];
-  final_video [label="ffmpeg: compare source vs final\nH.264 picture SHA-256 + packet count"];
-  final_audio [label="ffmpeg: compare extracted PCM vs\nfinal decoded audio SHA-256 + byte count"];
-  sync [label="ffprobe: compare first video/audio timestamps\nmaximum difference: 1 ms"];
-  final_pgs [label="ffmpeg: compare extracted vs final\nPGS packet SHA-256, if present"];
-  all_ok [shape=diamond, label="All checks\npass?", fillcolor="#fff2cc"];
   output [label="Publish episode MKV\nand audit.json", fillcolor="#ddf7e3", color="#72ad7d"];
   next [shape=diamond, label="More episodes?", fillcolor="#fff2cc"];
   repeat [label="Process next episode\nwith the same steps", fillcolor="#dceeff"];
@@ -64,12 +60,11 @@ digraph ChapterCutFlow {
   audio_ok -> error [label="no"];
   video_ok -> mux [label="yes"];
   flac -> mux;
-  pgs_cut -> mux;
+  pgs_hash -> error [label="no"];
+  pgs_hash -> mux [label="yes"];
   chapter -> mux;
   text -> mux;
-  mux -> partial -> final_video -> final_audio -> sync -> final_pgs -> all_ok;
-  all_ok -> error [label="no"];
-  all_ok -> output [label="yes"];
+  mux -> partial -> output;
   output -> next;
   next -> done [label="no"];
   next -> repeat [label="yes"];

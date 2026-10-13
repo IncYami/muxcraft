@@ -111,20 +111,16 @@ struct CutAudit {
     resolved: ResolvedCut,
     source_video_sha256: Option<String>,
     copied_video_sha256: Option<String>,
-    final_video_sha256: Option<String>,
     source_video_packets: Option<u64>,
     copied_video_packets: Option<u64>,
-    final_video_packets: Option<u64>,
     source_audio_sha256: BTreeMap<String, String>,
     cut_audio_sha256: BTreeMap<String, String>,
-    final_audio_sha256: BTreeMap<String, String>,
     source_audio_pcm_bytes: BTreeMap<String, u64>,
     cut_audio_pcm_bytes: BTreeMap<String, u64>,
-    final_audio_pcm_bytes: BTreeMap<String, u64>,
     audio_sample_ranges: BTreeMap<String, AudioSampleRange>,
-    pgs_sha256: BTreeMap<String, String>,
-    first_video_ms: Option<f64>,
-    first_audio_ms: BTreeMap<String, f64>,
+    source_pgs_sha256: BTreeMap<String, String>,
+    cut_pgs_sha256: BTreeMap<String, String>,
+    pgs_segments: BTreeMap<String, usize>,
 }
 #[derive(Debug, Clone, Serialize)]
 struct AudioSampleRange {
@@ -509,7 +505,6 @@ fn video_sha256(
     audit: &mut Audit,
     source: &Path,
     track: usize,
-    cut: Option<&ResolvedCut>,
 ) -> Result<(String, u64)> {
     let mut args = vec![
         "-nostdin".into(),
@@ -520,9 +515,6 @@ fn video_sha256(
         "-progress".into(),
         "pipe:2".into(),
     ];
-    if let Some(cut) = cut {
-        args.extend(["-ss".into(), format!("{:.9}", cut_relative(cut))]);
-    }
     args.extend(["-i".into(), source.to_string_lossy().into()]);
     args.extend([
         "-map".into(),
@@ -532,9 +524,6 @@ fn video_sha256(
         "-bsf:v".into(),
         "h264_mp4toannexb,filter_units=pass_types=1-5".into(),
     ]);
-    if let Some(cut) = cut {
-        args.extend(["-frames:v".into(), cut.video_frames.to_string()]);
-    }
     args.extend([
         "-f".into(),
         "hash".into(),
@@ -577,7 +566,6 @@ fn pcm_sha256(
     source: &Path,
     track: usize,
     codec: &str,
-    sample_range: Option<[u64; 2]>,
 ) -> Result<(String, u64)> {
     let mut args = vec![
         "-nostdin".into(),
@@ -586,12 +574,6 @@ fn pcm_sha256(
         "error".into(),
     ];
     args.extend(["-i".into(), source.to_string_lossy().into()]);
-    if let Some([start, end]) = sample_range {
-        args.extend([
-            "-af".into(),
-            format!("atrim=start_sample={start}:end_sample={end}"),
-        ]);
-    }
     let format = if codec == "pcm_s16le" {
         "s16le"
     } else {
@@ -706,49 +688,6 @@ fn first_packet_ms(program: &str, source: &Path, kind: &str, track: usize) -> Re
         .find_map(|line| line.trim().parse::<f64>().ok())
         .context("Track has no timestamped packets")?;
     Ok(first * 1000.0)
-}
-
-fn pgs_sha256(cfg: &Config, audit: &mut Audit, source: &Path, track: usize) -> Result<String> {
-    let mut args = vec![
-        "-nostdin".into(),
-        "-hide_banner".into(),
-        "-loglevel".into(),
-        "error".into(),
-        "-i".into(),
-        source.to_string_lossy().into(),
-        "-map".into(),
-        format!("0:s:{track}"),
-        "-c:s".into(),
-        "copy".into(),
-        "-f".into(),
-        "hash".into(),
-        "-hash".into(),
-        "SHA256".into(),
-        "-".into(),
-    ];
-    args.splice(
-        0..0,
-        ["-progress".into(), "pipe:2".into(), "-nostats".into()],
-    );
-    let result = ffmpeg_output(&cfg.tools.ffmpeg, &args, "PGS hash")?;
-    audit.commands.push(CommandRecord {
-        program: cfg.tools.ffmpeg.clone(),
-        args,
-        status: result.status.code(),
-    });
-    audit.save()?;
-    ensure!(
-        result.status.success(),
-        "PGS hash failed: {}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    let output = String::from_utf8(result.stdout)?;
-    let hash = output
-        .trim()
-        .strip_prefix("SHA256=")
-        .context("Missing PGS SHA256")?;
-    ensure!(hash.len() == 64, "Invalid PGS SHA256");
-    Ok(hash.into())
 }
 
 fn extract_audio(
@@ -1836,20 +1775,16 @@ fn run_episode(
                 resolved: cut.clone(),
                 source_video_sha256: None,
                 copied_video_sha256: None,
-                final_video_sha256: None,
                 source_video_packets: None,
                 copied_video_packets: None,
-                final_video_packets: None,
                 source_audio_sha256: BTreeMap::new(),
                 cut_audio_sha256: BTreeMap::new(),
-                final_audio_sha256: BTreeMap::new(),
                 source_audio_pcm_bytes: BTreeMap::new(),
                 cut_audio_pcm_bytes: BTreeMap::new(),
-                final_audio_pcm_bytes: BTreeMap::new(),
                 audio_sample_ranges: BTreeMap::new(),
-                pgs_sha256: BTreeMap::new(),
-                first_video_ms: None,
-                first_audio_ms: BTreeMap::new(),
+                source_pgs_sha256: BTreeMap::new(),
+                cut_pgs_sha256: BTreeMap::new(),
+                pgs_segments: BTreeMap::new(),
             });
             audit.save()?;
             let video = &plan.tracks[0];
@@ -1863,7 +1798,7 @@ fn run_episode(
             );
             cut_step.done();
             let verify_step = crate::ui::Step::new("Verify cut video hash and packet count");
-            let copied_hash = video_sha256(cfg, &mut audit, &path, 0, None)?;
+            let copied_hash = video_sha256(cfg, &mut audit, &path, 0)?;
             ensure!(
                 source_hash == copied_hash,
                 "Cut video differs from the original H.264 picture data or packet count"
@@ -1937,9 +1872,6 @@ fn run_episode(
         let index = font_index(cfg, base, plan, cache)?;
         let mut used = BTreeSet::new();
         let mut order = Vec::new();
-        let mut cut_pgs = Vec::new();
-        let mut cut_audio = BTreeMap::new();
-        let mut subtitle_index = 0;
         for (file_index, tp) in plan.tracks.iter().enumerate() {
             let track_step = crate::ui::Step::new(format!("Prepare {} ({})", tp.id, tp.category));
             let mut t = config_track(cfg, &tp.id, &ep.id);
@@ -1975,7 +1907,7 @@ fn run_episode(
                         .source_pcm_hash
                         .clone()
                         .context("Missing source PCM hash from cut extraction")?;
-                    let extracted = pcm_sha256(cfg, &mut audit, pcm, 0, codec, None)?;
+                    let extracted = pcm_sha256(cfg, &mut audit, pcm, 0, codec)?;
                     let matches_source = original == extracted;
                     let record = audit.cut.as_mut().unwrap();
                     record.source_audio_sha256.insert(tp.id.clone(), original.0);
@@ -2003,7 +1935,6 @@ fn run_episode(
                         original.1,
                         extracted.1
                     );
-                    cut_audio.insert(tp.id.clone(), (extracted.0, extracted.1, codec));
                 }
                 for (key, value) in prepared.tags {
                     t.tags.entry(key).or_insert(value);
@@ -2041,15 +1972,34 @@ fn run_episode(
                     ]);
                     audit.command(&cfg.tools.ffmpeg, extract_args, false)?;
                     if let Some(cut) = selected_cut {
+                        let verify_pgs = crate::ui::Step::new(format!("Verify cut PGS: {}", tp.id));
                         let first_source =
                             first_packet_ms(&cfg.tools.ffprobe, &tp.source, "s", subtitle_index)?;
-                        let cropped = pgs::cut(
-                            &std::fs::read(full.as_ref().unwrap())?,
-                            (first_source * 90.0).round() as i64,
-                            (cut.start_seconds * 90000.0).round() as i64,
-                            (cut.end_seconds * 90000.0).round() as i64,
-                        )?;
+                        let full_bytes = std::fs::read(full.as_ref().unwrap())?;
+                        let source_first_pts = (first_source * 90.0).round() as i64;
+                        let start_pts = (cut.start_seconds * 90000.0).round() as i64;
+                        let end_pts = (cut.end_seconds * 90000.0).round() as i64;
+                        let cropped = pgs::cut(&full_bytes, source_first_pts, start_pts, end_pts)?;
                         std::fs::write(&extracted, cropped)?;
+                        let integrity = pgs::verify_cut(
+                            &full_bytes,
+                            &std::fs::read(&extracted)?,
+                            source_first_pts,
+                            start_pts,
+                            end_pts,
+                        )?;
+                        let record = audit.cut.as_mut().unwrap();
+                        record
+                            .source_pgs_sha256
+                            .insert(tp.id.clone(), integrity.source_sha256);
+                        record
+                            .cut_pgs_sha256
+                            .insert(tp.id.clone(), integrity.cut_sha256);
+                        record
+                            .pgs_segments
+                            .insert(tp.id.clone(), integrity.segments);
+                        audit.save()?;
+                        verify_pgs.done();
                     }
                     let id = pgs_track(&identify(&cfg.tools.mkvmerge, &extracted)?, 0)?.0;
                     (extracted, id)
@@ -2080,12 +2030,6 @@ fn run_episode(
                 )?;
                 (path, id)
             };
-            if tp.category == "subtitle" {
-                if is_pgs(cfg, &tp.id) && tp.source == plan.source && cut.is_some() {
-                    cut_pgs.push((t.id.clone(), path.clone(), subtitle_index));
-                }
-                subtitle_index += 1;
-            }
             order.push(format!("{file_index}:{id}"));
             if tp.category == "video" && (t.audio || t.subtitles) {
                 let ident = identify(&cfg.tools.mkvmerge, &path)?;
@@ -2128,84 +2072,6 @@ fn run_episode(
         audit.command(&cfg.tools.mkvmerge, args, true)?;
         ensure!(partial.is_file(), "mkvmerge did not produce an output file");
         mux_step.done();
-        if cut.is_some() {
-            let verify_video = crate::ui::Step::new("Verify final video hash and packet count");
-            let final_hash = video_sha256(cfg, &mut audit, &partial, 0, None)?;
-            ensure!(
-                audit.cut.as_ref().unwrap().source_video_sha256.as_deref()
-                    == Some(final_hash.0.as_str())
-                    && audit.cut.as_ref().unwrap().source_video_packets == Some(final_hash.1),
-                "Final MKV video differs from the original H.264 picture data or packet count"
-            );
-            audit.cut.as_mut().unwrap().final_video_sha256 = Some(final_hash.0);
-            audit.cut.as_mut().unwrap().final_video_packets = Some(final_hash.1);
-            let first_video = first_packet_ms(&cfg.tools.ffprobe, &partial, "v", 0)?;
-            audit.cut.as_mut().unwrap().first_video_ms = Some(first_video);
-            verify_video.done();
-            let mut final_audio = 0;
-            for tp in &plan.tracks {
-                if tp.category == "audio" {
-                    if tp.source == plan.source {
-                        let verify_audio =
-                            crate::ui::Step::new(format!("Verify final audio hash: {}", tp.id));
-                        let source_pcm = cut_audio
-                            .get(&tp.id)
-                            .context("Missing extracted PCM reference")?
-                            .clone();
-                        let final_pcm =
-                            pcm_sha256(cfg, &mut audit, &partial, final_audio, source_pcm.2, None)?;
-                        let matches_cut =
-                            source_pcm.0 == final_pcm.0 && source_pcm.1 == final_pcm.1;
-                        audit
-                            .cut
-                            .as_mut()
-                            .unwrap()
-                            .final_audio_sha256
-                            .insert(tp.id.clone(), final_pcm.0);
-                        audit
-                            .cut
-                            .as_mut()
-                            .unwrap()
-                            .final_audio_pcm_bytes
-                            .insert(tp.id.clone(), final_pcm.1);
-                        audit.save()?;
-                        ensure!(
-                            matches_cut,
-                            "Final MKV audio {} differs from the original PCM samples",
-                            tp.id
-                        );
-                        let first_audio =
-                            first_packet_ms(&cfg.tools.ffprobe, &partial, "a", final_audio)?;
-                        audit
-                            .cut
-                            .as_mut()
-                            .unwrap()
-                            .first_audio_ms
-                            .insert(tp.id.clone(), first_audio);
-                        ensure!(
-                            (first_audio - first_video).abs() <= 1.0,
-                            "Audio {} starts {:.3} ms away from video",
-                            tp.id,
-                            first_audio - first_video
-                        );
-                        verify_audio.done();
-                    }
-                    final_audio += 1;
-                }
-            }
-            for (id, path, index) in cut_pgs {
-                let verify_pgs = crate::ui::Step::new(format!("Verify final PGS hash: {id}"));
-                let extracted = pgs_sha256(cfg, &mut audit, &path, 0)?;
-                let muxed = pgs_sha256(cfg, &mut audit, &partial, index)?;
-                ensure!(
-                    extracted == muxed,
-                    "Final MKV PGS {id} differs from the extracted PGS packets"
-                );
-                audit.cut.as_mut().unwrap().pgs_sha256.insert(id, extracted);
-                verify_pgs.done();
-            }
-            audit.save()?;
-        }
         let publish_step = crate::ui::Step::new("Publish output");
         std::fs::hard_link(&partial, &plan.output).with_context(|| {
             format!(

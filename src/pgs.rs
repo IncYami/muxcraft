@@ -1,4 +1,5 @@
 use anyhow::{Result, ensure};
+use sha2::{Digest, Sha256};
 
 struct Segment<'a> {
     pts: i64,
@@ -137,6 +138,85 @@ pub fn cut(
     Ok(output)
 }
 
+pub struct CutIntegrity {
+    pub source_sha256: String,
+    pub cut_sha256: String,
+    pub segments: usize,
+}
+
+/// Verify that the saved cut contains exactly the selected source display sets.
+/// PGS timestamps are rebased by the cut, so the hashes cover segment types and
+/// payloads while timestamps are compared against their expected rebased values.
+pub fn verify_cut(
+    full_sup: &[u8],
+    cut_sup: &[u8],
+    source_first_pts: i64,
+    start_pts: i64,
+    end_pts: i64,
+) -> Result<CutIntegrity> {
+    let source = segments(full_sup)?;
+    let cut = segments(cut_sup)?;
+    let offset = source_first_pts - source[0].pts;
+    let mut display = Vec::new();
+    let mut selected = Vec::new();
+    for segment in &source {
+        display.push(segment);
+        if segment.kind == 0x80 {
+            let first = display.iter().map(|s| s.pts + offset).min().unwrap();
+            if first >= start_pts && first < end_pts {
+                selected.append(&mut display);
+            } else {
+                display.clear();
+            }
+        }
+    }
+    ensure!(
+        selected.len() == cut.len(),
+        "Cut PGS segment count differs from the selected source displays"
+    );
+    let mut source_digest = Sha256::new();
+    let mut cut_digest = Sha256::new();
+    for (original, copied) in selected.iter().zip(&cut) {
+        hash_payload(&mut source_digest, original);
+        hash_payload(&mut cut_digest, copied);
+        let pts = original.pts + offset - start_pts;
+        let dts = if original.dts == 0 {
+            0
+        } else {
+            (original.dts + offset - start_pts).max(0)
+        };
+        ensure!(
+            copied.pts == pts && copied.dts == dts,
+            "Cut PGS timestamp differs from the selected source display"
+        );
+    }
+    let source_sha256 = source_digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let cut_sha256 = cut_digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    ensure!(
+        source_sha256 == cut_sha256,
+        "Cut PGS payload differs from the selected source displays"
+    );
+    Ok(CutIntegrity {
+        source_sha256,
+        cut_sha256,
+        segments: cut.len(),
+    })
+}
+
+fn hash_payload(digest: &mut Sha256, segment: &Segment<'_>) {
+    digest.update([segment.kind]);
+    digest.update((segment.body.len() as u32).to_be_bytes());
+    digest.update(segment.body);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,5 +253,20 @@ mod tests {
         assert_eq!(selected.len(), 4);
         assert_eq!(selected[0].pts, 0);
         assert_eq!(selected[2].pts, 90000);
+
+        let verified = verify_cut(&sup, &cropped, 450000, 540000, 720000).unwrap();
+        assert_eq!(verified.segments, 4);
+        assert_eq!(verified.source_sha256, verified.cut_sha256);
+
+        let mut corrupt_payload = cropped.clone();
+        corrupt_payload[23] ^= 1;
+        assert!(verify_cut(&sup, &corrupt_payload, 450000, 540000, 720000).is_err());
+
+        let mut corrupt_timestamp = cropped.clone();
+        corrupt_timestamp[5] ^= 1;
+        assert!(verify_cut(&sup, &corrupt_timestamp, 450000, 540000, 720000).is_err());
+
+        let missing_display = &cropped[..37];
+        assert!(verify_cut(&sup, missing_display, 450000, 540000, 720000).is_err());
     }
 }

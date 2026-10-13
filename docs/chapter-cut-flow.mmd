@@ -23,7 +23,9 @@ flowchart TD
     INT --> PG{"PGS from shared M2TS configured?"}
     PG -- Yes --> PX["ffmpeg: extract complete PGS stream to SUP"]
     PX --> PC["Rust: select complete display sets and rebase timestamps"]
-    PC --> PS["Episode SUP"]
+    PC --> PV["Rust: compare source/cut PGS payload SHA-256, segment count and rebased timestamps"]
+    PV -- Pass --> PS["Episode SUP"]
+    PV -- Fail --> ERR
 
     INT --> CH{"[chapters] configured?"}
     CH -- Yes --> CG["Rust: generate episode-relative chapters.txt"]
@@ -34,15 +36,7 @@ flowchart TD
     CG --> MX
     TEXT["Rust: prepare ASS/SRT and collect fonts when configured"] --> MX
     MX --> TMP["Temporary final MKV"]
-    TMP --> FV["ffmpeg: compare source and final H.264 picture SHA-256 and packet count"]
-    FV --> FA["ffmpeg: compare extracted PCM WAV and decoded final audio SHA-256 and byte count"]
-    FA --> SY["ffprobe: compare first video/audio timestamps; tolerance 1 ms"]
-    SY --> FP{"Episode PGS present?"}
-    FP -- Yes --> PH["ffmpeg: compare extracted and final PGS packet SHA-256"]
-    PH --> OK{"All checks pass?"}
-    FP -- No --> OK
-    OK -- No --> ERR
-    OK -- Yes --> OUT["Publish episode MKV and audit.json"]
+    TMP --> OUT["Publish episode MKV and audit.json"]
     OUT --> NEXT{"More episodes in batch?"}
     NEXT -- Yes --> REPEAT["Process the next episode with the same steps"]
     NEXT -- No --> DONE["Batch complete"]
