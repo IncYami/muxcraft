@@ -1,0 +1,6 @@
+[episodes]
+01 = 'media/episode-01-revised.mkv'
+
+[subtitles]
+US = 'subtitles/episode-01-revised.ass'
+SDH = false

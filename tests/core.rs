@@ -4,7 +4,30 @@ use muxcraft::{
     fonts,
     subtitle::{self, Ass, Fps},
 };
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, process::Command};
+
+#[test]
+fn committed_documentation_configs_load_and_plan() {
+    for config in [
+        "docs/configs/simple-batch.toml",
+        "docs/configs/joined-parts.toml",
+        "docs/configs/chapter-cut.toml",
+        "docs/configs/per-episode-overlay.toml",
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
+            .arg(config)
+            .args(["--mode", "plan", "--no-check"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{config}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let plan: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert!(plan.as_array().is_some_and(|episodes| !episodes.is_empty()));
+    }
+}
 fn track(extra: &str) -> Track {
     toml::from_str(&format!("id='sub'\nsource='sub.ass'\n{extra}")).unwrap()
 }

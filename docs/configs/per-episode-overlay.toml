@@ -1,0 +1,21 @@
+[project]
+show = 'Example Series'
+out_dir = 'output'
+work_dir = 'work'
+output = '{show}.{ep}.mkv'
+
+[episodes]
+01 = 'episodes/01.toml'
+02 = 'media/episode-02.mkv'
+
+[VideoTrack.01]
+source = '{episodes}'
+
+[subtitles]
+US = 'subtitles/original.ass'
+SDH = 'subtitles/sdh.srt'
+
+[mux]
+'VideoTrack.01' = { name = 'Video', language = 'en-US', default = true }
+US = { name = 'English', language = 'en-US', default = true }
+SDH = { name = 'English SDH', language = 'en-US', hearing_impaired = true }

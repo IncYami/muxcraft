@@ -66,109 +66,41 @@ cargo audit
 
 `cargo audit` checks `Cargo.lock` against the RustSec advisory database; it does not inspect muxcraft's source code or external media tools. The Nix shell includes `cargo-audit`.
 
-`--mode plan` prints JSON with resolved paths and track order; normally it requires existing files and unambiguous globs. `--no-check` shows a template plan when the source media is unavailable. `--mode check` validates tracks and FPS, processes subtitles in memory, and checks fonts and chapters without encoding audio or making an MKV. A run checks the batch before its first mux. `--episodes 01,02` selects episode IDs; the default runs all episodes in order.
+`--mode plan` prints JSON with resolved paths and track order; normally it requires existing files and unambiguous globs. `--no-check` shows a template plan when the source media is unavailable. `--mode check` validates tracks and FPS, processes subtitles in memory, and checks fonts and chapters without encoding audio or making an MKV. A run checks the batch before its first mux. `--episodes 01,02` selects episode IDs; the default runs all episodes in order. See the [configuration reference](docs/configuration.md) for every field and default.
 
-The local `examples/` directory contains sample configurations but is excluded from the GitHub distribution because its media paths are machine-specific. Create `my-batch.toml` using the configuration example below. Validate media paths and chapter names against your files. Missing ASS styles and fonts produce warnings and do not stop the batch. Ambiguous chapters remain an error.
+The local `examples/` directory contains sample configurations but is excluded from the GitHub distribution because its media paths are machine-specific. The generic committed examples in [docs/configs](docs/configs/) run as template plans without media files. Missing ASS styles and fonts produce warnings and do not stop the batch. Ambiguous chapters remain an error.
 
-## Why TOML
+## TOML syntax
 
-TOML supports comments, literal paths, explicit tables, and readable typed settings. Variables such as `{raw}`, `{ep}`, and `{DISC_ID}` avoid repeating paths without turning the configuration into a program. The order of entries in `[episodes]` is the batch order. An ambiguous glob is never resolved by choosing an arbitrary file.
+Use single-quoted strings by default; they preserve backslashes literally. Use double quotes only when TOML escape sequences are needed. TOML bare keys are suitable for numeric episode IDs: write `01` in `[episodes]`, `[chapters]`, and per-episode correction tables. These keys remain strings, including the leading zero. Episode IDs written as values are strings, for example `episodes = ['01']`. Quote dotted keys such as `'VideoTrack.01'` inside `[mux]`, and quote any key containing spaces.
 
-Use single quotes for Windows paths so backslashes stay literal, for example `bdmv = '\\server\disc\[RELEASE]'`. Relative paths start at the TOML directory, regardless of the command's working directory. `{config_dir}` denotes that directory; `{show}` is the show name; `{ep}` is the current episode ID. `{episodes}` is the resolved file from `[episodes]`: for a list of clips, it points to the joined MKV in the episode workdir. A string in `[vars]` applies to every episode. A grouped table such as `[vars.DISC_ID]` assigns each quoted disc name to the episode IDs in its array. An episode may appear only once per grouped variable, and referenced episode IDs must exist. Variable references can refer to other variables; unknown and circular references are errors.
+Relative paths start at the TOML directory. `{config_dir}`, `{show}`, `{ep}`, and `{episodes}` expand to the config directory, show, current episode ID, and resolved episode source. A string in `[vars]` applies to every episode. A grouped table such as `[vars.DISC_ID]` assigns values to episode IDs; references must exist and appear once. Variable references may refer to other variables; unknown and circular references are errors.
 
-An episode can list source clips in playback order:
-
-```toml
-[episodes]
-'01' = [
-  '{bdmv}/BDMV/STREAM/00002.m2ts',
-  '{bdmv}/BDMV/STREAM/00003.m2ts',
-  '{bdmv}/BDMV/STREAM/00004.m2ts',
-]
-
-[VideoTrack.01]
-source = '{episodes}'
-
-[AudioTrack.01]
-source = '{episodes}'
-codec = 'flac'
-```
-
-For a large batch, an episode can point to a partial TOML file. The referenced file repeats the same episode ID with its real source, then declares only the settings that differ. Unspecified tracks, variables, chapters, and mux settings are inherited from the batch. Paths in both files remain relative to the main batch TOML, and `{config_dir}` continues to name that directory. Episode config files cannot include other episode config files.
-
-For a two-file example, including `false` to disable individual tracks for one episode, see [Episode-specific tracks](#episode-specific-tracks) below.
-
-Before processing the tracks, muxcraft appends the clips with MKVToolNix to a file named after the first source, such as `00002.joined.mkv`, in the episode workdir. This is a lossless remux, so it uses extra disk space and time but gives video, audio, and PGS one timeline. Each clip must expose the same track order and codecs. `--mode check` validates the individual clips without creating the joined file; `--mode plan` lists both the original clips and the joined path. A failed join leaves the workdir and audit for inspection.
-
-For a season whose subtitle numbering differs from the episode IDs, define a derived variable: `season_episode = { from = 'ep', offset = -28, pad = 2 }` under `[vars]`. Episode `29` then expands `{season_episode}` to `01`, while episode `38` expands it to `10`. `from` must be `ep`; the IDs must be numeric, the offset result must be positive, and `pad` must be between 1 and 10. `{ep}` retains the original ID.
-
-## Configuration example
+## Quick configuration example
 
 ```toml
 [project]
-show = 'Fate/Strange Fake'
-out_dir = '/mnt/Muxed'
-work_dir = '/mnt/Muxed/_workdir'
-output = 'Fate.Strange.Fake.{ep}.1080p.BluRay.REMUX.AVC.FLAC.2.0-Shadow.mkv'
-title = '{show} - {ep} 1080p BluRay REMUX AVC FLAC 2.0 - Shadow'
+show = 'Example Series'
+out_dir = 'output'
+work_dir = 'work'
+output = '{show}.{ep}.mkv'
 fps = '24000/1001'
-clean_work_dirs = true
-
-[vars]
-bdmv = '/mnt/BDMV'
-raw = '{config_dir}/Raw'
-
-[vars.DISC_ID]
-'ANIPLEX ANZX-16981' = ['01', '02']
 
 [episodes]
-'01' = '{bdmv}/ANZX-16981/BDMV/STREAM/00001.m2ts'
-'02' = '{bdmv}/ANZX-16981/BDMV/STREAM/00002.m2ts'
-
-[chapters]
-'01' = ['AVANT', 'A-PART', 'B-PART', 'ENDING', 'C-PART']
-'02' = ['AVANT', 'OPENING', 'A-PART', 'B-PART', 'ENDING']
+01 = 'media/episode-01.mkv'
+02 = 'media/episode-02.mkv'
 
 [VideoTrack.01]
 source = '{episodes}'
 track = 0
-audio = false
-subtitles = false
-attachments = false
-global_tags = false
-chapters = false
-colour = { range = 1, primaries = 1, transfer = 1, matrix = 1 }
-
-[AudioTrack.01]
-source = '{episodes}'
-track = 0
-codec = 'flac'
-
-[subtitles]
-US = '{raw}/Kaleido/*S01E{ep}*.ass'
-CR01 = '{raw}/Crunchyroll/Fate.strange.Fake.S01E{ep}.CR.en-US.ass'
-SDH = '{raw}/SDH/Fate.strange.Fake.S01E{ep}.srt'
-
-[subtitles.processing]
-clean_garbage = true
-clean_extradata = true
-ycbcr_matrix = 'auto'
-
-[subtitles.shift]
-US = 24
-CR01 = { default = 24, '01' = { frames = 24, ranges = [{ start = 2374, end = 18628, frames = 72 }, { start = 33023, frames = -1438 }] } }
-
-[pgs]
-PGS = '{episodes}'
 
 [mux]
-'VideoTrack.01' = { name = 'JPN BD 1080p ({DISC_ID})', language = 'ja-JP', default = true }
-'AudioTrack.01' = { name = 'FLAC 2.0', language = 'ja-JP', default = true }
-US = { name = 'Kaleido', language = 'en-US', default = true }
-CR01 = { name = 'Crunchyroll', language = 'en-US', default = false }
-SDH = { name = 'SDH', language = 'en-US', hearing_impaired = true }
-PGS = { name = 'PGS', language = 'ja-JP' }
+'VideoTrack.01' = { name = 'Video', language = 'en-US', default = true }
 ```
+
+For complete examples of batch remuxing, joined clips, chapter cuts, and per-episode overrides, see [docs/configs](docs/configs/). The [configuration reference](docs/configuration.md) documents every option.
+
+Save the example as `batch.toml` and replace the media paths with your files. Run `muxcraft batch.toml --mode plan --no-check` to inspect the configuration, then `muxcraft batch.toml --mode check` to validate the media. Run `muxcraft batch.toml` to create the MKVs.
 
 ## Tracks and subtitles
 
@@ -234,7 +166,7 @@ Episode `01` inherits the other batch tracks and settings. `false` disables that
 
 ### Subtitle timing and edits
 
-`[subtitles.shift]` maps each subtitle ID to a frame count or a correction table. A batch-wide correction can use `default` and quoted episode IDs, such as `US = { default = 24, '01' = 0 }`; an episode value replaces the default. In an episode config file, use a direct correction such as `US = { frames = 24, ranges = [{ start = 2374, end = 18628, frames = 72 }] }` without nesting it under the episode ID. Shift ranges are half-open `[start, end)` and use the starting frame before correction; omitting `end` extends to the end. Overlapping range shifts add together. Unknown episode IDs are errors.
+`[subtitles.shift]` maps each subtitle ID to a frame count or a correction table. A batch-wide correction can use `default` and episode IDs as bare numeric keys, such as `US = { default = 24, 01 = 0 }`; an episode value replaces the default. In an episode config file, use a direct correction such as `US = { frames = 24, ranges = [{ start = 2374, end = 18628, frames = 72 }] }` without nesting it under the episode ID. Shift ranges are half-open `[start, end)` and use the starting frame before correction; omitting `end` extends to the end. Overlapping range shifts add together. Unknown episode IDs are errors.
 
 Timing uses rational CFR FPS and centisecond-centered ASS frame boundaries, following Aegisub. SRT keeps milliseconds when no shift is applied; shifts use the same frame centering. If a shift would move either boundary before zero, both boundaries are set to zero and the line is retained. There is no out-of-bounds setting.
 
@@ -245,7 +177,7 @@ Timing uses rational CFR FPS and centisecond-centered ASS frame boundaries, foll
 US = '{raw}/US/{ep}.ass'
 
 [subtitles.shift]
-US = { default = 24, '01' = { frames = 24, ranges = [{ start = 2374, end = 18628, frames = 72 }] } }
+US = { default = 24, 01 = { frames = 24, ranges = [{ start = 2374, end = 18628, frames = 72 }] } }
 
 [subtitles.delete]
 US = [{ episodes = ['01'], start = 50000 }]
@@ -260,12 +192,12 @@ Omitting `episodes` applies an item to all episodes. SRT additions take complete
 
 ## Chapters
 
-`[chapters]` uses the same episode IDs as `[episodes]`. An omitted ID produces no chapters. Four value forms are supported:
+`[chapters]` uses the same episode IDs as `[episodes]`. An omitted ID produces no chapters. Names-only arrays such as `01 = ['Opening', 'Ending']` read times from the matching BDMV playlist, so use them only when the source has an unambiguous MPLS. Use explicit frame entries or a TXT/XML chapter file for ordinary MKV sources. Four value forms are supported:
 
-- `'01' = ['AVANT', 'OPENING']` reads chapter times from the matching BDMV playlist and applies the listed names. The count must match the playlist marks.
-- `'02' = []` reads BDMV times and uses generic names such as `Chapter 01`.
-- `'00' = [{ frame = 0, name = 'Part One' }, { frame = 4260, name = 'Part Two' }]` creates chapters at the specified frames using the project's FPS.
-- `'03' = '{raw}/chapters.txt'` passes an existing simple OGM chapter text file to MKVToolNix; XML is also supported.
+- `01 = ['AVANT', 'OPENING']` reads chapter times from the matching BDMV playlist and applies the listed names. The count must match the playlist marks.
+- `02 = []` reads BDMV times and uses generic names such as `Chapter 01`.
+- `00 = [{ frame = 0, name = 'Part One' }, { frame = 4260, name = 'Part Two' }]` creates chapters at the specified frames using the project's FPS.
+- `03 = '{raw}/chapters.txt'` passes an existing simple OGM chapter text file to MKVToolNix; XML is also supported.
 
 Generated chapters use temporary `chapters.txt` files in the simple OGM text format. The native MPLS parser finds the clip in `BDMV/PLAYLIST`, anchors marks to the playlist IN time or an earlier first mark, and converts 45 kHz ticks directly to milliseconds without snapping chapter times to video frames. To discard a terminal chapter mark, muxcraft estimates the video's frame count from its ffprobe video-stream duration and the configured FPS. If the stream duration is unavailable, it tries the container duration, then the playlist's `OUT - IN` duration. Marks within the last 50 frames of that duration are ignored; this does not trim the video. A difference of more than two frames between video and playlist durations produces a warning, and the durations and cutoff source are recorded in the audit report. Explicit `{ frame = ... }` chapters use the configured FPS. If matching playlists have different chapter results, muxcraft reports an ambiguity. It handles one clip and does not concatenate playlists. For an episode with multiple source clips, supply frame chapters or a TXT/XML chapter file.
 
@@ -273,8 +205,8 @@ For a Blu-ray containing several episodes in one H.264 M2TS, put the source and 
 
 ```toml
 [episodes]
-"01" = { source = "{bdmv}/BDMV/STREAM/00002.m2ts", start_chapter = 1, end_chapter = 6 }
-"02" = { source = "{bdmv}/BDMV/STREAM/00002.m2ts", start_chapter = 6 }
+01 = { source = '{bdmv}/BDMV/STREAM/00002.m2ts', start_chapter = 1, end_chapter = 6 }
+02 = { source = '{bdmv}/BDMV/STREAM/00002.m2ts', start_chapter = 6 }
 ```
 
 Chapter numbers are one-based; `end_chapter` is exclusive. Omitting it uses the playlist OUT time. Muxcraft searches the sibling `BDMV/PLAYLIST` directory for single-clip MPLS files referencing the M2TS. Identical playlists are interchangeable; different chapter timings cause an ambiguity error. Each internal boundary must be within one frame of a keyframe. Audio from the shared M2TS requires `codec = 'flac'`. For each track, one FFmpeg read splits the decoded audio: a timestamp-trimmed branch writes the cut PCM WAV, while a sample-count-trimmed branch streams raw PCM to the source hash. Muxcraft independently reads the saved WAV and compares its PCM hash and byte count with that source hash before standalone FLAC encoding. Internal chapter cuts must contain the full requested audio sample range. At playlist OUT, the source can end a few samples before the requested time; the audit records both the requested sample endpoint and the decoded endpoint. The H.264 video is copied without re-encoding for the calculated frame count, excluding the next episode's keyframe at an internal boundary. A single FFmpeg tee invocation writes the cut MKV and hashes source H.264 picture units; muxcraft then independently reads and hashes the saved cut MKV. The copied frame count and SHA-256 comparisons of H.264 picture units must pass before the final MKV is published. The saved cut WAV is also compared with the final MKV audio decoded to PCM. The audit records the chosen playlist, selected keyframes, timing deviations, frame count, source sample interval, and all three audio hashes. This verifies the extracted interval against the chosen cut boundaries; it cannot establish that the playlist chapters themselves identify the intended episode.
@@ -319,10 +251,10 @@ Each MKV gets an adjacent `.audit.json` containing the plan, configuration snaps
 
 ## Coverage and validation
 
-The local sample configurations preserve episode-specific differences from the original workflows. For 86, chapters use MPLS; FFMS2/VapourSynth indexing is unnecessary when the video is copied. The Frieren sample uses TMDB season 1 and episodes 29–38; verify the catalog and adjust `season` or `offset` if needed.
+The committed generic examples exercise these configuration forms without relying on personal media paths.
 
 Tests cover grouped variables, episode order, chapter forms, variables and globs, subtitle shifts, deletions, and additions, negative shifts, ASS tags, video source options, multilingual XML, and truncated MPLS. The media test generates a two-episode batch with FFmpeg and checks a real mux, TrueHD, synthetic PGS, flags, chapters, track tags, audit reports, and copied bitstream hashes. With `MUXCRAFT_TEST_FONT`, it checks font attachments. That test requires the media tools on `PATH`. `MUXCRAFT_TEST_FONT=/path/to/font.ttf cargo test real_font` enables the local font test.
 
-The implementation supports the scripts' CFR workflow. It does not provide VFR timecodes, glyph searching, audio/video trimming and concatenation, every encoder, or Python interpretation. Real BDMVs, disc PGS, and all TrueHD/DTS variants still need validation with representative files.
+The implementation supports CFR timing, joins ordered source clips, and can cut an M2TS at chapter boundaries. It does not provide VFR timecodes, glyph searching, arbitrary audio/video edits, every encoder, or Python interpretation. Real BDMVs, disc PGS, and all TrueHD/DTS variants still need validation with representative files.
 
 Implementation references: [mkvmerge manual](https://mkvtoolnix.download/doc/mkvmerge.html), [OpenType name table](https://learn.microsoft.com/en-us/typography/opentype/spec/name), [FontCollector](https://github.com/moi15moi/FontCollector), [TMDB authentication](https://developer.themoviedb.org/docs/authentication-application), and [MKV timestamp conversion](https://moi15moi.github.io/VideoTimestamps/reference/fps_timestamps/).
