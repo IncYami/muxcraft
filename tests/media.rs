@@ -171,6 +171,15 @@ fn cuts_shared_m2ts_and_verifies_final_tracks() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("skipping unknown chunk 'JUNK'"),
+        "{stderr}"
+    );
+    assert!(
+        !stderr.contains("skipping unknown chunk 'LIST'"),
+        "{stderr}"
+    );
     for episode in ["01", "02"] {
         let final_path = base.join(format!("out/Split.{episode}.mkv"));
         assert!(final_path.is_file());
@@ -208,6 +217,26 @@ fn cuts_shared_m2ts_and_verifies_final_tracks() {
             audit["cut"]["copied_video_sha256"]
         );
         let cut_command = &audit["commands"];
+        let wav_command = cut_command
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|command| {
+                command["program"] == "ffmpeg"
+                    && command["args"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|arg| arg == "-rf64")
+            })
+            .expect("cut WAV extraction command");
+        let wav_args = wav_command["args"].as_array().unwrap();
+        assert!(
+            wav_args
+                .windows(2)
+                .any(|args| args[0] == "-rf64" && args[1] == "always")
+        );
+        assert!(wav_args.iter().any(|arg| arg == "-bitexact"));
         let source_video_reads = cut_command
             .as_array()
             .unwrap()

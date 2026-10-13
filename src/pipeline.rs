@@ -693,7 +693,8 @@ fn extract_audio(
             "-c:a".into(),
             codec.into(),
             "-rf64".into(),
-            "auto".into(),
+            "always".into(),
+            "-bitexact".into(),
             extracted.to_string_lossy().into(),
             "-map".into(),
             "[source_out]".into(),
@@ -800,7 +801,8 @@ fn extract_audio(
                 "-c:a".into(),
                 pcm_codec(stream).into(),
                 "-rf64".into(),
-                "auto".into(),
+                "always".into(),
+                "-bitexact".into(),
             ]);
         } else {
             args.extend(["-c:a".into(), "copy".into()]);
