@@ -180,8 +180,7 @@ PGS = { name = 'PGS', language = 'ja-JP' }
 | `colour = { range = 1, primaries = 1, transfer = 1, matrix = 1 }` | Sets the MKVToolNix video color metadata for the selected video track. Omit a field to leave that property as supplied by the source. Values are numeric MKVToolNix/Matroska codes. |
 | `[AudioTrack.01]`, `codec = 'flac'` | FFmpeg extracts `0:a:track` first. If necessary, FFmpeg then prepares a PCM Wave64 file. The standalone `flac` executable encodes at level 8 with `--verify`. No normalization or resampling is configured. |
 | `[AudioTrack.02]`, `codec = 'copy'` | FFmpeg extracts the original audio bitstream to a separate file for muxing. PCM is written as WAV. |
-| `kind = 'ass'` | Edits ASS in Rust while preserving dialogue text, tags, and fields. |
-| `kind = 'srt'` | Keeps SRT and supports shifts, deletions, and additions. |
+| `.ass` or `.srt` subtitle source | The resolved file extension selects subtitle processing. ASS is edited in Rust while preserving dialogue text, tags, and fields; SRT supports shifts, deletions, and additions and remains SRT. |
 | `[pgs]` | FFmpeg extracts a PGS stream from a container to `.sup` with stream copy, then MKVToolNix muxes it. An existing `.sup` is used directly. Text subtitle processing does not apply. |
 
 FLAC tracks receive `ENCODER` (the FLAC version) and `ENCODER_SETTINGS` (the encoder options) as Matroska track tags. Tags explicitly supplied in `[mux]` take precedence over these generated values. Copy tracks do not receive encoding tags.
@@ -194,7 +193,7 @@ Every video and audio table must declare `source`; audio tables must also declar
 
 Paths containing `*` or `?` are searched automatically after variable expansion. Both wildcards match within one path segment. Square brackets are literal, which is useful for release names like `[EA]`. The pattern must match exactly one file. Recursive `**` is unsupported; enumerate directories or use variables.
 
-`[subtitles]` maps a text subtitle ID to a path or to an inline table when it needs `kind`, `track`, `only`, `except`, `overrides`, or other options. An `.ass` or `.srt` extension selects its type automatically. SRT remains SRT; muxcraft does not convert subtitle formats.
+`[subtitles]` maps a text subtitle ID to a path or to an inline table when it needs `track`, `only`, `except`, `overrides`, or other options. The resolved `.ass` or `.srt` file extension selects its type, including when the configured source uses a glob. SRT remains SRT; muxcraft does not convert subtitle formats.
 
 `[pgs]` maps each image subtitle ID directly to a container or `.sup` file. A string selects the first PGS stream; use `{ source = '{episodes}', track = 1 }` to select the second PGS stream from a container. `track` is zero-based among PGS streams. `only`, `except`, and `args` are available in the inline form. PGS tracks are muxed after text subtitles and use the same `[mux]` naming and language settings. Container extraction uses FFmpeg stream copy, with no automatic delay preservation. Text cleaning, shifts, deletions, and additions do not apply to PGS; use `delay_ms` in `[mux]` for timing.
 

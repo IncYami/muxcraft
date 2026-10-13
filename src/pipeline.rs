@@ -882,6 +882,9 @@ fn config_track(cfg: &Config, id: &str, ep: &str) -> Track {
         .unwrap()
         .effective(ep)
 }
+fn is_pgs(cfg: &Config, id: &str) -> bool {
+    cfg.pgs.iter().any(|track| track.id == id)
+}
 fn matrix_from_metadata(space: &str, video_range: &str) -> String {
     let matrix = match space {
         "bt709" => "709",
@@ -938,6 +941,22 @@ fn load_sub(
     ep: &str,
     video: &TrackPlan,
 ) -> Result<(String, Option<Ass>)> {
+    let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+    let is_srt = extension.eq_ignore_ascii_case("srt");
+    let is_ass = extension.eq_ignore_ascii_case("ass");
+    if !(is_srt || is_ass) {
+        if extension.eq_ignore_ascii_case("sup") {
+            bail!("PGS subtitle {} belongs in [pgs]", t.id);
+        } else if extension.is_empty() {
+            bail!("Subtitle {} has no extension; expected .ass or .srt", t.id);
+        } else {
+            bail!(
+                "Subtitle {} has unsupported extension .{}; expected .ass or .srt",
+                t.id,
+                extension
+            );
+        }
+    }
     let input = std::fs::read_to_string(path)
         .with_context(|| format!("UTF-8 subtitle: {}", path.display()))?;
     let default = crate::config::Correction::default();
@@ -947,40 +966,55 @@ fn load_sub(
         &default
     };
     let fps = Fps::parse(&cfg.project.fps)?;
-    let kind = if t.kind.is_empty() {
-        path.extension().and_then(|s| s.to_str()).unwrap_or("")
-    } else {
-        &t.kind
-    };
-    match kind {
-        "srt" => {
+    if is_srt {
+        ensure!(
+            t.headers.is_empty() && t.clean.is_empty() && t.ycbcr_matrix.is_none(),
+            "Subtitle {}: ASS headers and cleaning are not valid for SRT",
+            t.id
+        );
+        return Ok((subtitle::process_srt(&input, t, correction, ep, fps)?, None));
+    }
+    if is_ass {
+        let mut effective = t.clone();
+        for (enabled, operation) in [
+            (cfg.subtitle_processing.clean_styles, "styles"),
+            (cfg.subtitle_processing.clean_garbage, "garbage"),
+            (cfg.subtitle_processing.clean_extradata, "extradata"),
+            (cfg.subtitle_processing.clean_comments, "comments"),
+        ] {
+            if enabled && !effective.clean.iter().any(|op| op == operation) {
+                effective.clean.push(operation.into());
+            }
+        }
+        if effective.ycbcr_matrix.is_none() {
+            effective.ycbcr_matrix = cfg.subtitle_processing.ycbcr_matrix.clone();
+        }
+        if let Some(matrix) = &effective.ycbcr_matrix {
             ensure!(
-                t.headers.is_empty() && t.clean.is_empty(),
-                "Subtitle {}: ASS headers and cleaning are not valid for SRT",
+                [
+                    "auto", "None", "TV.601", "PC.601", "TV.709", "PC.709", "TV.240M", "PC.240M",
+                    "TV.FCC", "PC.FCC"
+                ]
+                .contains(&matrix.as_str()),
+                "Invalid YCbCr matrix for {}: {matrix}",
                 t.id
             );
-            Ok((subtitle::process_srt(&input, t, correction, ep, fps)?, None))
+            ensure!(
+                !effective.headers.contains_key("YCbCr Matrix"),
+                "Subtitle {} sets YCbCr Matrix twice",
+                t.id
+            );
+            let value = if matrix == "auto" {
+                video_matrix(cfg, video)?
+            } else {
+                matrix.clone()
+            };
+            effective.headers.insert("YCbCr Matrix".into(), value);
         }
-        "ass" => {
-            let mut effective = t.clone();
-            if let Some(matrix) = &t.ycbcr_matrix {
-                ensure!(
-                    !t.headers.contains_key("YCbCr Matrix"),
-                    "Subtitle {} sets YCbCr Matrix twice",
-                    t.id
-                );
-                let value = if matrix == "auto" {
-                    video_matrix(cfg, video)?
-                } else {
-                    matrix.clone()
-                };
-                effective.headers.insert("YCbCr Matrix".into(), value);
-            }
-            let ass = subtitle::process_ass(&input, &effective, correction, ep, fps)?;
-            Ok((ass.dump(), Some(ass)))
-        }
-        _ => bail!("Subtitle {}: specify ass, srt, or pgs", t.id),
+        let ass = subtitle::process_ass(&input, &effective, correction, ep, fps)?;
+        return Ok((ass.dump(), Some(ass)));
     }
+    unreachable!("validated subtitle extension")
 }
 type FontCache = BTreeMap<(Vec<PathBuf>, bool), FontIndex>;
 fn font_index<'a>(
@@ -1010,13 +1044,10 @@ fn font_index<'a>(
             if track.category != "subtitle" {
                 continue;
             }
-            let spec = config_track(cfg, &track.id, &plan.episode);
-            let is_ass = spec.kind == "ass"
-                || (spec.kind.is_empty()
-                    && track
-                        .source
-                        .extension()
-                        .is_some_and(|ext| ext.eq_ignore_ascii_case("ass")));
+            let is_ass = track
+                .source
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("ass"));
             if is_ass && let Some(parent) = track.source.parent() {
                 dirs.push(parent.to_owned());
             }
@@ -1318,14 +1349,14 @@ fn check_cached(
             } else {
                 &tp.source
             };
-            if tp.category == "subtitle" && t.kind != "pgs" {
+            if tp.category == "subtitle" && !is_pgs(cfg, &tp.id) {
                 let (_, doc) = load_sub(cfg, &t, check_source, &plan.episode, &check_video)?;
                 if let Some(doc) = doc {
                     used.extend(requests(&doc)?);
                 }
             } else {
                 let ident = cached_identify(identifiers, &cfg.tools.mkvmerge, check_source)?;
-                if t.kind == "pgs" {
+                if is_pgs(cfg, &tp.id) {
                     pgs_track(ident, tp.track)?;
                 } else {
                     track_id(ident, &tp.category, tp.track)?;
@@ -1702,7 +1733,7 @@ fn run_episode(
                 }
                 let id = track_id(&identify(&cfg.tools.mkvmerge, &prepared.path)?, "audio", 0)?;
                 (prepared.path, id)
-            } else if t.kind == "pgs" {
+            } else if is_pgs(cfg, &tp.id) {
                 let ident = identify(&cfg.tools.mkvmerge, &tp.source)?;
                 let (id, subtitle_index) = pgs_track(&ident, t.track)?;
                 if tp
@@ -1773,7 +1804,7 @@ fn run_episode(
                 (path, id)
             };
             if tp.category == "subtitle" {
-                if t.kind == "pgs" && tp.source == plan.source && cut.is_some() {
+                if is_pgs(cfg, &tp.id) && tp.source == plan.source && cut.is_some() {
                     cut_pgs.push((t.id.clone(), path.clone(), subtitle_index));
                 }
                 subtitle_index += 1;

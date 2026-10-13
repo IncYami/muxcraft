@@ -507,8 +507,9 @@ CR={name='Crunchyroll',language='en-US'}
     assert_eq!(cfg.video[0].colour.as_ref().unwrap().matrix, Some(1));
     assert_eq!(plan[0].tracks[1].name, "Alternate");
     assert_eq!(plan[0].tracks[2].language, "en-US");
-    assert_eq!(cfg.subtitles[0].clean, ["garbage"]);
-    assert_eq!(cfg.subtitles[0].ycbcr_matrix.as_deref(), Some("auto"));
+    // Shared processing defaults are applied after resolving the actual file extension.
+    assert!(cfg.subtitles[0].clean.is_empty());
+    assert_eq!(cfg.subtitles[0].ycbcr_matrix, None);
     let us = cfg.subtitles[0].shift_table.as_ref().unwrap();
     let cr = cfg.subtitles[1].shift_table.as_ref().unwrap();
     assert_eq!(us.episodes["01"].shift, 48);
@@ -555,7 +556,7 @@ CR={name='Crunchyroll',language='en-US'}
         input.replace("[AudioTrack.01]\nsource='{episodes}'", "[AudioTrack.01]"),
         input.replace("codec='copy'", ""),
         input.replace("codec='copy'", "codec='copy'\nkind='ass'"),
-        input.replace("US='us.ass'", "US={kind='ass'}"),
+        input.replace("US='us.ass'", "US={source='us.ass',kind='ass'}"),
         input.replace("US='us.ass'", "US={source='us.srt',kind='srt_to_ass'}"),
         input.replace("US='us.ass'", "US={source='us.ass',style='LATO'}"),
         input.replace("US='us.ass'", "US={source='us.ass',glob=true}"),

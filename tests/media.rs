@@ -668,7 +668,9 @@ source='truehd.mka'
 codec='flac'
 [subtitles]
 styled='subtitle-service/{ep}.ass'
-srt='{ep}.srt'
+srt='{ep}.srt*'
+[subtitles.processing]
+clean_garbage=true
 [pgs]
 pgs='subtitle.sup'
 pgs_alt={source='pgs.mks',track=1}
@@ -768,6 +770,7 @@ pgs_alt={name='Second PGS',language='ja-JP'}
         assert_eq!(tracks[4]["codec"], "TrueHD");
         assert_eq!(tracks[5]["codec"], "FLAC");
         assert_eq!(tracks[6]["codec"], "SubStationAlpha");
+        assert!(tracks[7]["codec"].as_str().unwrap().contains("SubRip"));
         assert_eq!(tracks[7]["properties"]["flag_hearing_impaired"], true);
         assert_eq!(tracks[7]["properties"]["forced_track"], true);
         assert_eq!(tracks[6]["properties"]["language_ietf"], "pt-BR");

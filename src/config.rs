@@ -39,6 +39,8 @@ pub struct Config {
     pub pgs: Vec<Track>,
     #[serde(default)]
     pub fonts: FontConfig,
+    #[serde(default)]
+    pub(crate) subtitle_processing: SubtitleProcessing,
     pub tmdb: Option<Tmdb>,
     #[serde(default)]
     pub mux_args: Vec<String>,
@@ -145,8 +147,6 @@ struct RawSubtitle {
     #[serde(default)]
     track: usize,
     #[serde(default)]
-    kind: String,
-    #[serde(default)]
     only: Vec<String>,
     #[serde(default)]
     except: Vec<String>,
@@ -201,7 +201,6 @@ impl RawSubtitle {
     fn into_track(self, id: String) -> Track {
         let mut track = Track::new(id, self.source);
         track.track = self.track;
-        track.kind = self.kind;
         track.only = self.only;
         track.except = self.except;
         track.overrides = self.overrides;
@@ -230,14 +229,14 @@ struct MuxSettings {
     tags: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 #[serde(default, deny_unknown_fields)]
-struct SubtitleProcessing {
-    clean_styles: bool,
-    clean_garbage: bool,
-    clean_extradata: bool,
-    clean_comments: bool,
-    ycbcr_matrix: Option<String>,
+pub(crate) struct SubtitleProcessing {
+    pub(crate) clean_styles: bool,
+    pub(crate) clean_garbage: bool,
+    pub(crate) clean_extradata: bool,
+    pub(crate) clean_comments: bool,
+    pub(crate) ycbcr_matrix: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -465,8 +464,6 @@ pub struct Track {
     pub tags: BTreeMap<String, String>,
     #[serde(default)]
     pub codec: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub kind: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub only: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -509,7 +506,6 @@ impl Track {
             args: Vec::new(),
             tags: BTreeMap::new(),
             codec: String::new(),
-            kind: String::new(),
             only: Vec::new(),
             except: Vec::new(),
             overrides: BTreeMap::new(),
@@ -945,13 +941,14 @@ impl Config {
         }
         let mut subtitles = Vec::new();
         let mut fonts = FontConfig::default();
+        let mut subtitle_processing = SubtitleProcessing::default();
         if let Some(mut entries) = raw.subtitles {
             fonts = entries
                 .remove("fonts")
                 .map(toml::Value::try_into)
                 .transpose()?
                 .unwrap_or_default();
-            let processing: SubtitleProcessing = entries
+            subtitle_processing = entries
                 .remove("processing")
                 .map(toml::Value::try_into)
                 .transpose()?
@@ -976,28 +973,10 @@ impl Config {
                     !key.contains('.'),
                     "Subtitle ID must not contain a dot: {key}"
                 );
-                let mut track = match value.try_into::<SourceOrTrack>()? {
+                let track = match value.try_into::<SourceOrTrack>()? {
                     SourceOrTrack::Source(source) => Track::new(key, source),
                     SourceOrTrack::Track(track) => (*track).into_track(key),
                 };
-                let is_plain = track.kind == "srt"
-                    || (track.kind.is_empty()
-                        && track.source.to_ascii_lowercase().ends_with(".srt"));
-                if !is_plain {
-                    for (enabled, operation) in [
-                        (processing.clean_styles, "styles"),
-                        (processing.clean_garbage, "garbage"),
-                        (processing.clean_extradata, "extradata"),
-                        (processing.clean_comments, "comments"),
-                    ] {
-                        if enabled && !track.clean.iter().any(|op| op == operation) {
-                            track.clean.push(operation.into());
-                        }
-                    }
-                    if track.ycbcr_matrix.is_none() {
-                        track.ycbcr_matrix = processing.ycbcr_matrix.clone();
-                    }
-                }
                 subtitles.push(track);
             }
             for (key, value) in shift_entries {
@@ -1057,7 +1036,7 @@ impl Config {
         let mut pgs = Vec::new();
         for (id, spec) in raw.pgs {
             ensure!(!id.contains('.'), "PGS ID must not contain a dot: {id}");
-            let mut track = match spec {
+            let track = match spec {
                 SourceOrPgs::Source(source) => Track::new(id, source),
                 SourceOrPgs::Track(spec) => {
                     let mut track = Track::new(id, spec.source);
@@ -1073,7 +1052,6 @@ impl Config {
                 "PGS {} has an empty source",
                 track.id
             );
-            track.kind = "pgs".into();
             pgs.push(track);
         }
         let mut known = BTreeSet::new();
@@ -1115,6 +1093,7 @@ impl Config {
             subtitles,
             pgs,
             fonts,
+            subtitle_processing,
             tmdb: raw.tmdb,
             mux_args: raw.mux_args,
             episode_configs: BTreeMap::new(),
@@ -1279,16 +1258,6 @@ impl Config {
             );
         }
         for t in &self.subtitles {
-            ensure!(
-                ["", "ass", "srt"].contains(&t.kind.as_str()),
-                "Invalid subtitle type: {}",
-                t.kind
-            );
-            ensure!(
-                !t.source.to_ascii_lowercase().ends_with(".sup"),
-                "PGS subtitle {} belongs in [pgs]",
-                t.id
-            );
             if let Some(matrix) = &t.ycbcr_matrix {
                 ensure!(
                     [
@@ -1302,15 +1271,6 @@ impl Config {
                 ensure!(
                     !t.headers.contains_key("YCbCr Matrix"),
                     "Subtitle {} sets YCbCr Matrix twice",
-                    t.id
-                );
-            }
-            let plain_srt = t.kind == "srt"
-                || (t.kind.is_empty() && t.source.to_ascii_lowercase().ends_with(".srt"));
-            if plain_srt {
-                ensure!(
-                    t.ycbcr_matrix.is_none(),
-                    "Plain SRT subtitle {} cannot use ycbcr_matrix",
                     t.id
                 );
             }
