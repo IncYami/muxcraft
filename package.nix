@@ -21,9 +21,10 @@ rustPlatform.buildRustPackage {
         relative = lib.removePrefix "${root}/" (toString path);
       in
       path == root
-      || builtins.elem relative [ "Cargo.toml" "Cargo.lock" "build.rs" "src" "tests" ]
+      || builtins.elem relative [ "Cargo.toml" "Cargo.lock" "build.rs" "src" "tests" "docs" ]
       || lib.hasPrefix "src/" relative
-      || lib.hasPrefix "tests/" relative;
+      || lib.hasPrefix "tests/" relative
+      || lib.hasPrefix "docs/" relative;
   };
   cargoLock.lockFile = ./Cargo.lock;
 

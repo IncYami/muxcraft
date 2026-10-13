@@ -4,18 +4,22 @@ use muxcraft::{
     fonts,
     subtitle::{self, Ass, Fps},
 };
-use std::{collections::BTreeMap, process::Command};
+use std::{collections::BTreeMap, path::Path, process::Command};
+
+fn documentation_config(name: &str) -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/configs").join(name)
+}
 
 #[test]
 fn committed_documentation_configs_load_and_plan() {
     for config in [
-        "docs/configs/simple-batch.toml",
-        "docs/configs/joined-parts.toml",
-        "docs/configs/chapter-cut.toml",
-        "docs/configs/per-episode-overlay.toml",
+        "simple-batch.toml",
+        "joined-parts.toml",
+        "chapter-cut.toml",
+        "per-episode-overlay.toml",
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
-            .arg(config)
+            .arg(documentation_config(config))
             .args(["--mode", "plan", "--no-check"])
             .output()
             .unwrap();
@@ -32,13 +36,8 @@ fn committed_documentation_configs_load_and_plan() {
 #[test]
 fn plan_keeps_stdout_as_json_and_verbose_option_is_accepted() {
     let output = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
-        .args([
-            "docs/configs/simple-batch.toml",
-            "--mode",
-            "plan",
-            "--no-check",
-            "--verbose",
-        ])
+        .arg(documentation_config("simple-batch.toml"))
+        .args(["--mode", "plan", "--no-check", "--verbose"])
         .output()
         .unwrap();
     assert!(
