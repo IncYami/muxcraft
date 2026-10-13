@@ -28,6 +28,28 @@ fn committed_documentation_configs_load_and_plan() {
         assert!(plan.as_array().is_some_and(|episodes| !episodes.is_empty()));
     }
 }
+
+#[test]
+fn plan_keeps_stdout_as_json_and_verbose_option_is_accepted() {
+    let output = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
+        .args([
+            "docs/configs/simple-batch.toml",
+            "--mode",
+            "plan",
+            "--no-check",
+            "--verbose",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let plan: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(plan.as_array().is_some_and(|episodes| !episodes.is_empty()));
+    assert!(output.stderr.is_empty());
+}
 fn track(extra: &str) -> Track {
     toml::from_str(&format!("id='sub'\nsource='sub.ass'\n{extra}")).unwrap()
 }

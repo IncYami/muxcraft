@@ -23,9 +23,13 @@ struct Cli {
     /// Check or run only the specified episode IDs (comma separated)
     #[arg(long, value_delimiter = ',')]
     episodes: Vec<String>,
+    /// Show commands and detailed tool diagnostics
+    #[arg(long, global = true)]
+    verbose: bool,
 }
 fn execute() -> Result<()> {
     let cli = Cli::parse();
+    muxcraft::ui::initialize(cli.verbose);
     anyhow::ensure!(
         !cli.no_check || matches!(cli.mode, Mode::Plan),
         "--no-check can only be used with --mode plan"
@@ -52,7 +56,7 @@ fn execute() -> Result<()> {
 }
 fn main() {
     if let Err(e) = execute() {
-        eprintln!("Error: {e:#}");
+        muxcraft::ui::error(&format!("{e:#}"));
         std::process::exit(1);
     }
 }

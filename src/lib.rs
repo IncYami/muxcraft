@@ -7,3 +7,4 @@ pub mod pgs;
 pub mod pipeline;
 pub mod subtitle;
 pub mod tmdb;
+pub mod ui;
