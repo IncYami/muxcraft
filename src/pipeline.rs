@@ -113,6 +113,17 @@ fn identify(program: &str, path: &Path) -> Result<Identification> {
     ensure!(ident.errors.is_empty(), "mkvmerge: {:?}", ident.errors);
     Ok(ident)
 }
+fn cached_identify<'a>(
+    cache: &'a mut BTreeMap<(String, PathBuf), Identification>,
+    program: &str,
+    path: &Path,
+) -> Result<&'a Identification> {
+    let key = (program.to_owned(), path.to_owned());
+    if !cache.contains_key(&key) {
+        cache.insert(key.clone(), identify(program, path)?);
+    }
+    Ok(cache.get(&key).unwrap())
+}
 fn track_id(ident: &Identification, category: &str, relative: usize) -> Result<u64> {
     let kind = if category == "subtitle" {
         "subtitles"
@@ -1235,15 +1246,30 @@ fn validate_fps(cfg: &Config, path: &Path, relative: usize) -> Result<()> {
     Ok(())
 }
 pub fn check(cfg: &Config, base: &Path, plans: &[EpisodePlan]) -> Result<()> {
-    check_cached(cfg, base, plans, &mut FontCache::new())
+    let mut cache = FontCache::new();
+    let mut identifiers = BTreeMap::new();
+    if cfg.episode_configs.is_empty() {
+        check_cached(cfg, base, plans, &mut cache, &mut identifiers)?;
+    } else {
+        for plan in plans {
+            check_cached(
+                cfg.for_episode(&plan.episode),
+                base,
+                std::slice::from_ref(plan),
+                &mut cache,
+                &mut identifiers,
+            )?;
+        }
+    }
+    Ok(())
 }
 fn check_cached(
     cfg: &Config,
     base: &Path,
     plans: &[EpisodePlan],
     cache: &mut FontCache,
+    identifiers: &mut BTreeMap<(String, PathBuf), Identification>,
 ) -> Result<()> {
-    let mut identifiers = BTreeMap::new();
     for plan in plans {
         if plan.cut.is_some() {
             let cut = cuts::resolve(cfg, plan)?.context("Missing resolved cut")?;
@@ -1260,7 +1286,7 @@ fn check_cached(
         if plan.sources.len() > 1 {
             let mut previous: Option<Vec<(String, String)>> = None;
             for source in &plan.sources {
-                let ident = identify(&cfg.tools.mkvmerge, source)?;
+                let ident = cached_identify(identifiers, &cfg.tools.mkvmerge, source)?;
                 let layout = ident
                     .tracks
                     .iter()
@@ -1296,16 +1322,11 @@ fn check_cached(
                     used.extend(requests(&doc)?);
                 }
             } else {
-                if !identifiers.contains_key(check_source) {
-                    identifiers.insert(
-                        check_source.clone(),
-                        identify(&cfg.tools.mkvmerge, check_source)?,
-                    );
-                }
+                let ident = cached_identify(identifiers, &cfg.tools.mkvmerge, check_source)?;
                 if t.kind == "pgs" {
-                    pgs_track(&identifiers[check_source], tp.track)?;
+                    pgs_track(ident, tp.track)?;
                 } else {
-                    track_id(&identifiers[check_source], &tp.category, tp.track)?;
+                    track_id(ident, &tp.category, tp.track)?;
                 }
             }
         }
@@ -1924,16 +1945,39 @@ pub fn run(cfg: &Config, base: &Path, plans: &[EpisodePlan]) -> Result<()> {
         );
     }
     let mut cache = FontCache::new();
-    check_cached(cfg, base, plans, &mut cache)?;
-    let mut client = cfg.tmdb.as_ref().map(tmdb::Client::new).transpose()?;
+    let mut identifiers = BTreeMap::new();
+    if cfg.episode_configs.is_empty() {
+        check_cached(cfg, base, plans, &mut cache, &mut identifiers)?;
+    } else {
+        for plan in plans {
+            check_cached(
+                cfg.for_episode(&plan.episode),
+                base,
+                std::slice::from_ref(plan),
+                &mut cache,
+                &mut identifiers,
+            )?;
+        }
+    }
     let mut errors = Vec::new();
     for plan in plans {
-        let ep = cfg.episodes.iter().find(|e| e.id == plan.episode).unwrap();
+        let episode_cfg = cfg.for_episode(&plan.episode);
+        let ep = episode_cfg
+            .episodes
+            .iter()
+            .find(|e| e.id == plan.episode)
+            .or_else(|| cfg.episodes.iter().find(|e| e.id == plan.episode))
+            .unwrap();
         eprintln!("Muxing episode {}", ep.id);
-        if let Err(e) = run_episode(cfg, base, ep, plan, &mut client, &mut cache) {
+        let mut client = episode_cfg
+            .tmdb
+            .as_ref()
+            .map(tmdb::Client::new)
+            .transpose()?;
+        if let Err(e) = run_episode(episode_cfg, base, ep, plan, &mut client, &mut cache) {
             eprintln!("{}: {e:#}", ep.id);
             errors.push(ep.id.clone());
-            if !cfg.project.continue_on_error {
+            if !episode_cfg.project.continue_on_error {
                 return Err(e);
             }
         }

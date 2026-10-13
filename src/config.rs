@@ -42,6 +42,8 @@ pub struct Config {
     pub tmdb: Option<Tmdb>,
     #[serde(default)]
     pub mux_args: Vec<String>,
+    #[serde(skip)]
+    pub episode_configs: BTreeMap<String, Box<Config>>,
 }
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -754,9 +756,95 @@ pub fn resolve(
     paths.remove(0).canonicalize().map_err(Into::into)
 }
 impl Config {
+    pub fn for_episode(&self, id: &str) -> &Config {
+        self.episode_configs
+            .get(id)
+            .map(Box::as_ref)
+            .unwrap_or(self)
+    }
     pub fn load(path: &Path) -> Result<Self> {
-        let mut raw: RawConfig =
-            toml::from_str(&std::fs::read_to_string(path)?).context("Invalid TOML")?;
+        let content = std::fs::read_to_string(path)?;
+        let mut root: toml::Value = toml::from_str(&content).context("Invalid TOML")?;
+        let base = path.parent().unwrap_or_else(|| Path::new("."));
+        let episodes = root
+            .get("episodes")
+            .and_then(toml::Value::as_table)
+            .context("Missing [episodes]")?
+            .clone();
+        let mut expanded_episodes = toml::map::Map::new();
+        let mut overlays = BTreeMap::new();
+        for (id, source) in &episodes {
+            if let Some(file) = source
+                .as_str()
+                .filter(|s| s.to_ascii_lowercase().ends_with(".toml"))
+            {
+                let include_path = if Path::new(file).is_absolute() {
+                    PathBuf::from(file)
+                } else {
+                    base.join(file)
+                };
+                let include_text = std::fs::read_to_string(&include_path).with_context(|| {
+                    format!(
+                        "Reading episode config for {id} at {}",
+                        include_path.display()
+                    )
+                })?;
+                let overlay: toml::Value = toml::from_str(&include_text).with_context(|| {
+                    format!("Invalid episode config {}", include_path.display())
+                })?;
+                let overlay_episodes = overlay
+                    .get("episodes")
+                    .and_then(toml::Value::as_table)
+                    .with_context(|| {
+                        format!("{} needs an [episodes] table", include_path.display())
+                    })?;
+                ensure!(
+                    overlay_episodes.len() == 1 && overlay_episodes.contains_key(id),
+                    "{} must define exactly the referenced episode {id}",
+                    include_path.display()
+                );
+                let actual = overlay_episodes[id].clone();
+                ensure!(
+                    !actual
+                        .as_str()
+                        .is_some_and(|s| s.to_ascii_lowercase().ends_with(".toml")),
+                    "{} cannot include another episode config",
+                    include_path.display()
+                );
+                expanded_episodes.insert(id.clone(), actual);
+                overlays.insert(id.clone(), (overlay, include_path));
+            } else {
+                expanded_episodes.insert(id.clone(), source.clone());
+            }
+        }
+        root.as_table_mut()
+            .unwrap()
+            .insert("episodes".into(), toml::Value::Table(expanded_episodes));
+        let mut configs = BTreeMap::new();
+        for (id, (overlay, include_path)) in overlays {
+            let mut per_episode = root.clone();
+            merge_config(&mut per_episode, &overlay)?;
+            if let Some(table) = per_episode
+                .get_mut("episodes")
+                .and_then(toml::Value::as_table_mut)
+            {
+                table.insert(id.clone(), root["episodes"][&id].clone());
+            }
+            disable_episode_tracks(&mut per_episode, &id, &root)?;
+            configs.insert(
+                id.clone(),
+                Box::new(Self::load_value(per_episode).with_context(|| {
+                    format!("Episode {id} config from {}", include_path.display())
+                })?),
+            );
+        }
+        let mut cfg = Self::load_value(root)?;
+        cfg.episode_configs = configs;
+        Ok(cfg)
+    }
+
+    fn load_value(value: toml::Value) -> Result<Self> {
+        let mut raw: RawConfig = value.try_into().context("Invalid TOML configuration")?;
         let ids: BTreeSet<_> = raw.episodes.keys().cloned().collect();
         let mut vars = BTreeMap::new();
         let mut grouped = BTreeMap::new();
@@ -920,6 +1008,15 @@ impl Config {
                 match value.try_into::<SubtitleShift>()? {
                     SubtitleShift::Frames(frames) => track.shift_frames = frames,
                     SubtitleShift::Table(mut table) => {
+                        if table.contains_key("frames") || table.contains_key("ranges") {
+                            let correction: SubtitleShiftEpisode =
+                                toml::Value::Table(table).try_into()?;
+                            track.shift_table = Some(ShiftTable {
+                                default: correction.into(),
+                                episodes: BTreeMap::new(),
+                            });
+                            continue;
+                        }
                         let default: SubtitleShiftValue = table
                             .remove("default")
                             .with_context(|| format!("Shift {key} needs a default value"))?
@@ -1020,6 +1117,7 @@ impl Config {
             fonts,
             tmdb: raw.tmdb,
             mux_args: raw.mux_args,
+            episode_configs: BTreeMap::new(),
         };
         cfg.validate()?;
         Ok(cfg)
@@ -1240,6 +1338,31 @@ impl Config {
         Ok(())
     }
     pub fn plan(&self, base: &Path, check: bool) -> Result<Vec<EpisodePlan>> {
+        if self.episode_configs.is_empty() {
+            return self.plan_local(base, check);
+        }
+        let mut plans = Vec::new();
+        let mut outputs = BTreeSet::new();
+        let mut works = BTreeSet::new();
+        for ep in &self.episodes {
+            let effective = self.for_episode(&ep.id);
+            let mut isolated = effective.clone();
+            isolated.episode_configs.clear();
+            isolated.episodes.retain(|e| e.id == ep.id);
+            let mut current = isolated.plan_local(base, check)?;
+            for plan in &current {
+                ensure!(
+                    outputs.insert(plan.output.clone()),
+                    "Two episodes produce {}",
+                    plan.output.display()
+                );
+                ensure!(works.insert(plan.work.clone()), "Duplicate workdir");
+            }
+            plans.append(&mut current);
+        }
+        Ok(plans)
+    }
+    fn plan_local(&self, base: &Path, check: bool) -> Result<Vec<EpisodePlan>> {
         let mut results = Vec::new();
         let mut outputs = BTreeSet::new();
         let mut works = BTreeSet::new();
@@ -1382,4 +1505,116 @@ impl Config {
         }
         Ok(results)
     }
+}
+
+fn merge_config(base: &mut toml::Value, overlay: &toml::Value) -> Result<()> {
+    let target = base.as_table_mut().context("Config root must be a table")?;
+    let additions = overlay
+        .as_table()
+        .context("Episode config root must be a table")?;
+    for (section, value) in additions {
+        if section == "episodes" {
+            continue;
+        }
+        match (target.get_mut(section), value) {
+            (Some(toml::Value::Table(dst)), toml::Value::Table(src)) if section == "subtitles" => {
+                merge_subtitles(dst, src)
+            }
+            (Some(toml::Value::Table(dst)), toml::Value::Table(src)) => merge_table(dst, src),
+            (Some(dst), src) => *dst = src.clone(),
+            (None, src) => {
+                target.insert(section.clone(), src.clone());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn merge_subtitles(
+    dst: &mut toml::map::Map<String, toml::Value>,
+    src: &toml::map::Map<String, toml::Value>,
+) {
+    for (key, value) in src {
+        if key == "shift"
+            && let (Some(toml::Value::Table(target)), toml::Value::Table(overrides)) =
+                (dst.get_mut(key), value)
+        {
+            for (id, correction) in overrides {
+                target.insert(id.clone(), correction.clone());
+            }
+        } else {
+            match (dst.get_mut(key), value) {
+                (Some(toml::Value::Table(d)), toml::Value::Table(s)) => merge_table(d, s),
+                (Some(d), s) => *d = s.clone(),
+                (None, s) => {
+                    dst.insert(key.clone(), s.clone());
+                }
+            }
+        }
+    }
+}
+
+fn merge_table(
+    dst: &mut toml::map::Map<String, toml::Value>,
+    src: &toml::map::Map<String, toml::Value>,
+) {
+    for (key, value) in src {
+        match (dst.get_mut(key), value) {
+            (Some(toml::Value::Table(d)), toml::Value::Table(s)) => merge_table(d, s),
+            (Some(d), s) => *d = s.clone(),
+            (None, s) => {
+                dst.insert(key.clone(), s.clone());
+            }
+        }
+    }
+}
+
+fn disable_episode_tracks(
+    config: &mut toml::Value,
+    episode: &str,
+    base: &toml::Value,
+) -> Result<()> {
+    let root = config
+        .as_table_mut()
+        .context("Config root must be a table")?;
+    let disabled = ["VideoTrack", "AudioTrack", "subtitles", "pgs"];
+    let mut ids = Vec::new();
+    for section in disabled {
+        let Some(table) = root.get_mut(section).and_then(toml::Value::as_table_mut) else {
+            continue;
+        };
+        let keys: Vec<String> = table
+            .iter()
+            .filter_map(|(k, v)| (v == &toml::Value::Boolean(false)).then_some(k.clone()))
+            .collect();
+        for key in keys {
+            let id = if section == "VideoTrack" || section == "AudioTrack" {
+                format!("{section}.{key}")
+            } else {
+                key.clone()
+            };
+            ensure!(
+                base.get(section)
+                    .and_then(toml::Value::as_table)
+                    .is_some_and(|t| t.contains_key(&key)),
+                "Episode {episode} disables unknown {id}"
+            );
+            table.remove(&key);
+            ids.push(id);
+            if section == "subtitles" {
+                for op in ["shift", "delete", "add"] {
+                    if let Some(t) = table.get_mut(op).and_then(toml::Value::as_table_mut) {
+                        t.remove(&key);
+                    }
+                }
+            }
+        }
+    }
+    if let Some(mux) = root.get_mut("mux").and_then(toml::Value::as_table_mut) {
+        for id in ids {
+            mux.remove(&id);
+        }
+    }
+    let _ = episode;
+    Ok(())
 }

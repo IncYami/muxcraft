@@ -823,6 +823,131 @@ pgs_alt={name='Second PGS',language='ja-JP'}
 }
 
 #[test]
+fn episode_config_is_used_for_mux_and_audit() {
+    if !available("ffmpeg") || !available("mkvmerge") {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path();
+    cmd(
+        "ffmpeg",
+        &[
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=128x72:r=24",
+            "-t",
+            "1",
+            "-c:v",
+            "libx264",
+            base.join("source.mkv").to_str().unwrap(),
+        ],
+    );
+    for (name, text) in [
+        ("original.srt", "Original"),
+        ("replacement.srt", "Replacement"),
+        ("commentary.srt", "Commentary"),
+    ] {
+        std::fs::write(
+            base.join(name),
+            format!("1\n00:00:00,100 --> 00:00:00,800\n{text}\n"),
+        )
+        .unwrap();
+    }
+    std::fs::create_dir(base.join("episodes")).unwrap();
+    std::fs::write(
+        base.join("episodes/01.toml"),
+        "[episodes]\n01='source.mkv'\n[subtitles]\nUS='replacement.srt'\nCR12=false\n",
+    )
+    .unwrap();
+    let config = r#"
+[project]
+show='EpisodeConfig'
+out_dir='out'
+work_dir='work'
+clean_work_dirs=false
+fps='24'
+[episodes]
+01='episodes/01.toml'
+02='source.mkv'
+[VideoTrack.01]
+source='{episodes}'
+[subtitles]
+US='original.srt'
+CR12='commentary.srt'
+[mux]
+'VideoTrack.01'={name='Video',language='und'}
+US={name='US',language='en'}
+CR12={name='Commentary',language='en'}
+"#;
+    let config_path = base.join("batch.toml");
+    std::fs::write(&config_path, config).unwrap();
+    let planned = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
+        .args(["--mode", "plan", "--no-check", "--episodes", "02"])
+        .arg(&config_path)
+        .output()
+        .unwrap();
+    assert!(
+        planned.status.success(),
+        "{}",
+        String::from_utf8_lossy(&planned.stderr)
+    );
+    let selected: serde_json::Value = serde_json::from_slice(&planned.stdout).unwrap();
+    assert_eq!(selected.as_array().unwrap().len(), 1);
+    assert_eq!(selected[0]["episode"], "02");
+    let output = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
+        .arg(&config_path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let inspect = |ep: &str| {
+        let path = base.join(format!("out/EpisodeConfig.{ep}.mkv"));
+        let result = Command::new("mkvmerge")
+            .args(["-J"])
+            .arg(path)
+            .output()
+            .unwrap();
+        assert!(result.status.success());
+        serde_json::from_slice::<serde_json::Value>(&result.stdout).unwrap()
+    };
+    let first = inspect("01");
+    let second = inspect("02");
+    let names = |info: &serde_json::Value| {
+        info["tracks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| {
+                t["properties"]["track_name"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_owned()
+            })
+            .collect::<Vec<_>>()
+    };
+    assert!(names(&first).contains(&"US".to_owned()));
+    assert!(!names(&first).contains(&"Commentary".to_owned()));
+    assert!(names(&second).contains(&"Commentary".to_owned()));
+    let audit: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(base.join("out/EpisodeConfig.01.audit.json")).unwrap(),
+    )
+    .unwrap();
+    let us = audit["plan"]["tracks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["id"] == "US")
+        .unwrap();
+    assert!(us["source"].as_str().unwrap().ends_with("replacement.srt"));
+}
+
+#[test]
 fn video_source_can_keep_audio_subtitles_attachments_and_set_colour() {
     if !available("ffmpeg") || !available("mkvmerge") {
         eprintln!("Media test requires ffmpeg and mkvmerge");

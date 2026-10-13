@@ -31,6 +31,128 @@ fn expansion_and_literal_glob() {
         .is_err()
     );
 }
+
+#[test]
+fn episode_config_inherits_and_overrides_only_its_episode() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("episode-01.toml"),
+        r#"
+[episodes]
+01 = 'actual-01.m2ts'
+[subtitles]
+US = 'replacement.ass'
+CR12 = false
+[subtitles.shift]
+US = { frames = 0, ranges = [{ start = 1, end = 10, frames = 2 }] }
+[VideoTrack]
+02 = false
+[AudioTrack]
+02 = false
+[pgs]
+PGS = false
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("batch.toml"),
+        r#"
+[project]
+show = 'Example'
+out_dir = 'out'
+work_dir = 'work'
+[episodes]
+01 = 'episode-01.toml'
+02 = 'actual-02.m2ts'
+[VideoTrack.01]
+source = '{episodes}'
+[AudioTrack.01]
+source = '{episodes}'
+codec = 'flac'
+[VideoTrack.02]
+source = '{episodes}'
+[AudioTrack.02]
+source = '{episodes}'
+codec = 'flac'
+[subtitles]
+US = 'original.ass'
+CR12 = 'cr12.ass'
+[pgs]
+PGS = 'subtitle.sup'
+[subtitles.shift]
+US = { default = 2 }
+[mux]
+'VideoTrack.01' = { name = 'Video', language = 'ja' }
+'VideoTrack.02' = { name = 'Video 2', language = 'ja' }
+'AudioTrack.01' = { name = 'Audio', language = 'ja' }
+'AudioTrack.02' = { name = 'Audio 2', language = 'ja' }
+US = { name = 'US', language = 'en' }
+CR12 = { name = 'CR12', language = 'en' }
+PGS = { name = 'PGS', language = 'ja' }
+"#,
+    )
+    .unwrap();
+    let cfg = Config::load(&dir.path().join("batch.toml")).unwrap();
+    let plan = cfg.plan(dir.path(), false).unwrap();
+    let first = plan.iter().find(|p| p.episode == "01").unwrap();
+    let second = plan.iter().find(|p| p.episode == "02").unwrap();
+    assert!(first.source.ends_with("actual-01.m2ts"));
+    assert!(first.tracks.iter().any(|t| t.id == "AudioTrack.01"));
+    assert!(!first.tracks.iter().any(|t| t.id == "AudioTrack.02"));
+    assert!(!first.tracks.iter().any(|t| t.id == "VideoTrack.02"));
+    assert!(!first.tracks.iter().any(|t| t.id == "PGS"));
+    assert!(
+        first
+            .tracks
+            .iter()
+            .any(|t| t.id == "US" && t.source.ends_with("replacement.ass"))
+    );
+    let us = cfg
+        .for_episode("01")
+        .subtitles
+        .iter()
+        .find(|t| t.id == "US")
+        .unwrap();
+    let correction = &us.shift_table.as_ref().unwrap().default;
+    assert_eq!(correction.shift, 0);
+    assert_eq!(correction.ranges.len(), 1);
+    assert_eq!(correction.ranges[0].shift, 2);
+    assert!(!first.tracks.iter().any(|t| t.id == "CR12"));
+    assert!(
+        second
+            .tracks
+            .iter()
+            .any(|t| t.id == "US" && t.source.ends_with("original.ass"))
+    );
+    assert!(second.tracks.iter().any(|t| t.id == "CR12"));
+    assert!(second.tracks.iter().any(|t| t.id == "AudioTrack.02"));
+    assert!(second.tracks.iter().any(|t| t.id == "VideoTrack.02"));
+    assert!(second.tracks.iter().any(|t| t.id == "PGS"));
+    std::fs::write(
+        dir.path().join("episode-01.toml"),
+        "[episodes]\n01='nested.toml'\n",
+    )
+    .unwrap();
+    assert!(
+        format!(
+            "{:#}",
+            Config::load(&dir.path().join("batch.toml")).unwrap_err()
+        )
+        .contains("cannot include another episode config")
+    );
+    std::fs::write(
+        dir.path().join("episode-01.toml"),
+        "[episodes]\n99='actual-01.m2ts'\n",
+    )
+    .unwrap();
+    assert!(
+        format!(
+            "{:#}",
+            Config::load(&dir.path().join("batch.toml")).unwrap_err()
+        )
+        .contains("must define exactly the referenced episode 01")
+    );
+}
 #[test]
 fn ass_preserves_commas_and_collects_overrides_without_fallback() {
     let doc = Ass::parse(ASS).unwrap();

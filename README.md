@@ -94,6 +94,10 @@ source = '{episodes}'
 codec = 'flac'
 ```
 
+For a large batch, an episode can point to a partial TOML file. The referenced file repeats the same episode ID with its real source, then declares only the settings that differ. Unspecified tracks, variables, chapters, and mux settings are inherited from the batch. Paths in both files remain relative to the main batch TOML, and `{config_dir}` continues to name that directory. Episode config files cannot include other episode config files.
+
+For a two-file example, including `false` to disable individual tracks for one episode, see [Episode-specific tracks](#episode-specific-tracks) below.
+
 Before processing the tracks, muxcraft appends the clips with MKVToolNix to a file named after the first source, such as `00002.joined.mkv`, in the episode workdir. This is a lossless remux, so it uses extra disk space and time but gives video, audio, and PGS one timeline. Each clip must expose the same track order and codecs. `--mode check` validates the individual clips without creating the joined file; `--mode plan` lists both the original clips and the joined path. A failed join leaves the workdir and audit for inspection.
 
 For a season whose subtitle numbering differs from the episode IDs, define a derived variable: `season_episode = { from = 'ep', offset = -28, pad = 2 }` under `[vars]`. Episode `29` then expands `{season_episode}` to `01`, while episode `38` expands it to `10`. `from` must be `ep`; the IDs must be numeric, the offset result must be positive, and `pad` must be between 1 and 10. `{ep}` retains the original ID.
@@ -199,19 +203,39 @@ Paths containing `*` or `?` are searched automatically after variable expansion.
 Cleaning removes unused styles, project/extradata sections, and Comment events. Styles referenced by dialogue or `\rName` are retained. Missing styles are reported and never cause an unrelated style to be retained as a font fallback.
 
 
-### Episode exceptions
+### Episode-specific tracks
+
+Use an episode config when a subtitle source or track set differs for one episode:
 
 ```toml
+# batch.toml
+[episodes]
+01 = 'episodes/01.toml'
+02 = 'disc/episode-02.m2ts'
+
 [subtitles]
-US = { source = '{raw}/Kaleido/*S01E{ep}*.ass',
-       except = ['01'], overrides = { '02' = { source = '{raw}/Kaleido/*PMR*.ass' } } }
+US = 'subtitles/{ep}.ass'
+CR12 = 'subtitles/commentary.ass'
 ```
 
-`except` omits a track from listed episodes; `only` includes it only for listed episodes. Overrides accept `source`. Timing corrections belong under `[subtitles.shift]`; output names belong under `[mux]`.
+```toml
+# episodes/01.toml
+[episodes]
+01 = 'disc/episode-01.m2ts'
+
+[subtitles]
+US = 'subtitles/episode-01-revised.ass'
+CR12 = false
+
+[subtitles.shift]
+US = 0
+```
+
+Episode `01` inherits the other batch tracks and settings. `false` disables that subtitle for the episode, including its mux settings and subtitle edits. The older `only`, `except`, and source `overrides` options remain available for simple track inclusion rules.
 
 ### Subtitle timing and edits
 
-`[subtitles.shift]` maps each subtitle ID directly to a frame count. For an episode exception, use an inline table with `default` and quoted episode IDs, such as `US = { default = 24, '01' = 0 }`. An episode value replaces the default correction. A value can also be a table with `frames` and `ranges`. Shift ranges are half-open `[start, end)` and use the starting frame before correction; omitting `end` extends to the end. Overlapping range shifts add together. Unknown episode IDs are errors.
+`[subtitles.shift]` maps each subtitle ID to a frame count or a correction table. A batch-wide correction can use `default` and quoted episode IDs, such as `US = { default = 24, '01' = 0 }`; an episode value replaces the default. In an episode config file, use a direct correction such as `US = { frames = 24, ranges = [{ start = 2374, end = 18628, frames = 72 }] }` without nesting it under the episode ID. Shift ranges are half-open `[start, end)` and use the starting frame before correction; omitting `end` extends to the end. Overlapping range shifts add together. Unknown episode IDs are errors.
 
 Timing uses rational CFR FPS and centisecond-centered ASS frame boundaries, following Aegisub. SRT keeps milliseconds when no shift is applied; shifts use the same frame centering. If a shift would move either boundary before zero, both boundaries are set to zero and the line is retained. There is no out-of-bounds setting.
 
