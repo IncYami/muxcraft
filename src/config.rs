@@ -237,6 +237,18 @@ pub(crate) struct SubtitleProcessing {
     pub(crate) clean_extradata: bool,
     pub(crate) clean_comments: bool,
     pub(crate) ycbcr_matrix: Option<String>,
+    pub(crate) truncate_video: Option<TruncateVideo>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct TruncateVideo {
+    pub(crate) trimmed: bool,
+}
+impl Default for TruncateVideo {
+    fn default() -> Self {
+        Self { trimmed: true }
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]

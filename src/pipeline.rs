@@ -940,6 +940,7 @@ fn load_sub(
     path: &Path,
     ep: &str,
     video: &TrackPlan,
+    cutoff: Option<(i64, bool)>,
 ) -> Result<(String, Option<Ass>)> {
     let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
     let is_srt = extension.eq_ignore_ascii_case("srt");
@@ -972,7 +973,10 @@ fn load_sub(
             "Subtitle {}: ASS headers and cleaning are not valid for SRT",
             t.id
         );
-        return Ok((subtitle::process_srt(&input, t, correction, ep, fps)?, None));
+        return Ok((
+            subtitle::process_srt(&input, t, correction, ep, fps, cutoff)?,
+            None,
+        ));
     }
     if is_ass {
         let mut effective = t.clone();
@@ -1011,7 +1015,7 @@ fn load_sub(
             };
             effective.headers.insert("YCbCr Matrix".into(), value);
         }
-        let ass = subtitle::process_ass(&input, &effective, correction, ep, fps)?;
+        let ass = subtitle::process_ass(&input, &effective, correction, ep, fps, cutoff)?;
         return Ok((ass.dump(), Some(ass)));
     }
     unreachable!("validated subtitle extension")
@@ -1118,6 +1122,52 @@ fn probe_video_duration(
         .success()
         .then(|| video_duration_from_probe(&output.stdout, fps))
         .flatten()
+}
+fn subtitle_cutoff(
+    cfg: &Config,
+    plan: &EpisodePlan,
+    cut: Option<&ResolvedCut>,
+) -> Result<Option<(i64, bool)>> {
+    let Some(mode) = &cfg.subtitle_processing.truncate_video else {
+        return Ok(None);
+    };
+    let fps = Fps::parse(&cfg.project.fps)?;
+    let end_ms = if plan.cut.is_some() {
+        let cut = cut.context("Missing resolved cut")?;
+        ((cut.video_frames as i128 * fps.den as i128 * 1000 + fps.num as i128 / 2)
+            / fps.num as i128) as i64
+    } else {
+        let video = &plan.tracks[0];
+        let sources = if plan.sources.len() > 1 && video.source == plan.source {
+            &plan.sources
+        } else {
+            std::slice::from_ref(&video.source)
+        };
+        let mut duration = 0i64;
+        for source in sources {
+            let measured = probe_video_duration(&cfg.tools.ffprobe, source, video.track, fps)
+                .with_context(|| {
+                    format!(
+                        "Cannot determine video end for subtitle truncation: {}",
+                        source.display()
+                    )
+                })?;
+            duration = duration
+                .checked_add(measured.duration_ms)
+                .context("Video duration overflow")?;
+        }
+        duration
+    };
+    ensure!(
+        end_ms > 0,
+        "Video end must be positive for subtitle truncation"
+    );
+    Ok(Some((end_ms, mode.trimmed)))
+}
+fn has_text_subtitles(cfg: &Config, plan: &EpisodePlan) -> bool {
+    plan.tracks
+        .iter()
+        .any(|track| track.category == "subtitle" && !is_pgs(cfg, &track.id))
 }
 fn chapter_data(
     cfg: &Config,
@@ -1304,7 +1354,7 @@ fn check_cached(
     identifiers: &mut BTreeMap<(String, PathBuf), Identification>,
 ) -> Result<()> {
     for plan in plans {
-        if plan.cut.is_some() {
+        let resolved_cut = if plan.cut.is_some() {
             let cut = cuts::resolve(cfg, plan)?.context("Missing resolved cut")?;
             eprintln!(
                 "{}: cut {:.9}..{:.9} s; start mark offset {:+.3} ms; end mark offset {}",
@@ -1315,7 +1365,10 @@ fn check_cached(
                 cut.end_deviation_ms
                     .map_or_else(|| "playlist OUT".into(), |ms| format!("{ms:+.3} ms"))
             );
-        }
+            Some(cut)
+        } else {
+            None
+        };
         if plan.sources.len() > 1 {
             let mut previous: Option<Vec<(String, String)>> = None;
             for source in &plan.sources {
@@ -1342,6 +1395,11 @@ fn check_cached(
         if check_video.source == plan.source && plan.sources.len() > 1 {
             check_video.source = plan.sources[0].clone();
         }
+        let cutoff = if has_text_subtitles(cfg, plan) {
+            subtitle_cutoff(cfg, plan, resolved_cut.as_ref())?
+        } else {
+            None
+        };
         for tp in &plan.tracks {
             let t = config_track(cfg, &tp.id, &plan.episode);
             let check_source = if tp.source == plan.source && plan.sources.len() > 1 {
@@ -1350,7 +1408,8 @@ fn check_cached(
                 &tp.source
             };
             if tp.category == "subtitle" && !is_pgs(cfg, &tp.id) {
-                let (_, doc) = load_sub(cfg, &t, check_source, &plan.episode, &check_video)?;
+                let (_, doc) =
+                    load_sub(cfg, &t, check_source, &plan.episode, &check_video, cutoff)?;
                 if let Some(doc) = doc {
                     used.extend(requests(&doc)?);
                 }
@@ -1559,6 +1618,11 @@ fn run_episode(
     audit.save()?;
     let result = (|| -> Result<()> {
         let cut = cuts::resolve(cfg, plan)?;
+        let cutoff = if has_text_subtitles(cfg, plan) {
+            subtitle_cutoff(cfg, plan, cut.as_ref())?
+        } else {
+            None
+        };
         let mut cut_video_path = None;
         if let Some(ref cut) = cut {
             audit.cut = Some(CutAudit {
@@ -1778,7 +1842,7 @@ fn run_episode(
                     (extracted, id)
                 }
             } else if tp.category == "subtitle" {
-                let (text, doc) = load_sub(cfg, &t, &tp.source, &ep.id, &plan.tracks[0])?;
+                let (text, doc) = load_sub(cfg, &t, &tp.source, &ep.id, &plan.tracks[0], cutoff)?;
                 let ext = if let Some(doc) = doc {
                     used.extend(requests(&doc)?);
                     "ass"

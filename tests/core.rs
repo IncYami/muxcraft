@@ -174,6 +174,7 @@ fn ass_preserves_commas_and_collects_overrides_without_fallback() {
         &Correction::default(),
         "01",
         Fps::parse("24").unwrap(),
+        None,
     )
     .unwrap()
     .dump();
@@ -188,6 +189,7 @@ fn ass_preserves_commas_and_collects_overrides_without_fallback() {
         &Correction::default(),
         "01",
         Fps::parse("24").unwrap(),
+        None,
     )
     .unwrap();
     assert!(!cleaned.dump().contains("Style: Default"));
@@ -227,18 +229,71 @@ fn shift_ranges_and_explicit_deletions() {
     let correction: Correction =
         toml::from_str("shift=24\nranges=[{start=24,end=48,shift=24}]").unwrap();
     let input = "1\n00:00:01,000 --> 00:00:02,000\na\n\n2\n00:00:03,000 --> 00:00:04,000\nb\n\n3\n00:00:04,000 --> 00:00:05,000\nc\n";
-    let out = subtitle::process_srt(input, &t, &correction, "01", fps).unwrap();
+    let out = subtitle::process_srt(input, &t, &correction, "01", fps, None).unwrap();
     let cues = subtitle::parse_srt(&out).unwrap();
     assert_eq!(cues.len(), 1);
     assert_eq!(cues[0].text, "a");
     assert_eq!(fps.frame(cues[0].start, false), 72);
 }
 #[test]
+fn video_truncation_handles_srt_and_ass_boundaries() {
+    let fps = Fps::parse("24").unwrap();
+    let t = track("");
+    let srt = "1\n00:00:00,000 --> 00:00:01,000\na\n\n2\n00:00:01,000 --> 00:00:02,500\nb\n\n3\n00:00:02,000 --> 00:00:03,000\nc\n";
+    let trimmed = subtitle::process_srt(
+        srt,
+        &t,
+        &Correction::default(),
+        "01",
+        fps,
+        Some((2000, true)),
+    )
+    .unwrap();
+    let cues = subtitle::parse_srt(&trimmed).unwrap();
+    assert_eq!(cues.len(), 2);
+    assert_eq!(cues[1].end, 2000);
+    let strict = subtitle::process_srt(
+        srt,
+        &t,
+        &Correction::default(),
+        "01",
+        fps,
+        Some((2000, false)),
+    )
+    .unwrap();
+    assert_eq!(subtitle::parse_srt(&strict).unwrap().len(), 1);
+
+    let ass = "[Script Info]\nTitle: test\n[V4+ Styles]\nFormat: Name, Fontname, Bold, Italic\nStyle: Default,Arial,0,0\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,a\nDialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,b\nDialogue: 0,0:00:02.00,0:00:03.00,Default,,0,0,0,,c\n";
+    let clipped = subtitle::process_ass(
+        ass,
+        &t,
+        &Correction::default(),
+        "01",
+        fps,
+        Some((2000, true)),
+    )
+    .unwrap()
+    .dump();
+    assert!(clipped.contains("0:00:02.00,Default,,0,0,0,,b"));
+    assert!(!clipped.contains(",,c"));
+    let quantized = subtitle::process_ass(
+        ass,
+        &t,
+        &Correction::default(),
+        "01",
+        fps,
+        Some((1005, true)),
+    )
+    .unwrap()
+    .dump();
+    assert!(!quantized.contains(",,b"));
+}
+#[test]
 fn negative_shift_keeps_srt_line_at_zero() {
     let input = "1\n00:00:00,100 --> 00:00:01,000\nhello\n";
     let t = track("shift_frames=-24");
     let fps = Fps::parse("24").unwrap();
-    let out = subtitle::process_srt(input, &t, &Correction::default(), "01", fps).unwrap();
+    let out = subtitle::process_srt(input, &t, &Correction::default(), "01", fps, None).unwrap();
     let c = subtitle::parse_srt(&out).unwrap();
     assert_eq!(c.len(), 1);
     assert_eq!((c[0].start, c[0].end), (0, 0));
@@ -254,6 +309,7 @@ fn negative_shift_keeps_ass_dialogue_at_zero() {
         &Correction::default(),
         "01",
         Fps::parse("24").unwrap(),
+        None,
     )
     .unwrap()
     .dump();
@@ -289,6 +345,7 @@ fn ass_line_add() {
         &Correction::default(),
         "01",
         Fps::parse("24").unwrap(),
+        None,
     )
     .unwrap();
     assert!(out.dump().contains("added,comma"));
@@ -298,6 +355,7 @@ fn ass_line_add() {
         &Correction::default(),
         "01",
         Fps::parse("24").unwrap(),
+        None,
     )
     .unwrap()
     .dump();

@@ -164,6 +164,7 @@ pub fn process_srt(
     correction: &Correction,
     ep: &str,
     fps: Fps,
+    cutoff: Option<(i64, bool)>,
 ) -> Result<String> {
     let mut cues = Vec::new();
     for mut c in parse_srt(input)? {
@@ -185,6 +186,19 @@ pub fn process_srt(
             }
             cues.sort_by_key(|c| c.start);
         }
+    }
+    if let Some((end, trimmed)) = cutoff {
+        cues.retain_mut(|c| {
+            if trimmed {
+                if c.start >= end {
+                    return false;
+                }
+                c.end = c.end.min(end);
+            } else if c.end > end {
+                return false;
+            }
+            c.end > c.start && c.end > 0
+        });
     }
     Ok(dump_srt(&cues))
 }
@@ -319,6 +333,7 @@ pub fn process_ass(
     correction: &Correction,
     ep: &str,
     fps: Fps,
+    cutoff: Option<(i64, bool)>,
 ) -> Result<Ass> {
     let mut doc = Ass::parse(input)?;
     doc.set_headers(&t.headers)?;
@@ -407,6 +422,39 @@ pub fn process_ass(
                 *line = sorted.next().unwrap().1;
             }
         }
+    }
+    if let Some((end, trimmed)) = cutoff {
+        // ASS stores event timestamps in centiseconds, so compare against the
+        // last representable endpoint at or before the video end.
+        let end = end / 10 * 10;
+        let mut kept = Vec::new();
+        for line in &doc.lines {
+            if line.starts_with("Dialogue:") || line.starts_with("Comment:") {
+                let mut f = doc.event(line)?;
+                let start = parse_time(&f[a])?;
+                let mut finish = parse_time(&f[b])?;
+                if trimmed {
+                    if start >= end {
+                        continue;
+                    }
+                    finish = finish.min(end);
+                    if finish <= start || finish <= 0 {
+                        continue;
+                    }
+                    f[b] = time(finish, true);
+                    kept.push(format!(
+                        "{}: {}",
+                        line.split_once(':').unwrap().0,
+                        f.join(",")
+                    ));
+                } else if finish <= end && finish > start && finish > 0 {
+                    kept.push(line.clone());
+                }
+            } else {
+                kept.push(line.clone());
+            }
+        }
+        doc.lines = kept;
     }
     let mut used = BTreeSet::new();
     let sty = index(&doc.event_format, "Style")?;
