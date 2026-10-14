@@ -1,7 +1,7 @@
 flowchart TD
     A["Batch TOML: one file in [episodes], no chapter cut"] --> B["Rust: expand paths and build the episode plan"]
     B --> C["Preflight: inspect configured sources, tracks, chapters and fonts"]
-    C --> W["Create work/EP and start audit.json"]
+    C --> W["Create work/EP; start audit.json if enabled"]
     W --> V["VideoTrack: use the original source directly; mkvmerge identifies the selected video track"]
     W --> AU{"AudioTrack configured?"}
     AU -- Yes --> AX["ffprobe identifies audio; ffmpeg extracts the selected stream"]
@@ -22,7 +22,7 @@ flowchart TD
     SUB --> MX
     CH --> MX
     TAG --> MX
-    MX --> OUT["Publish final MKV without overwriting; copy adjacent audit.json"]
+    MX --> OUT["Publish final MKV without overwriting; copy audit.json if enabled"]
     OUT --> CLEAN{"clean_work_dirs?"}
     CLEAN -- Yes --> RM["Remove work/EP"]
     CLEAN -- No --> KEEP["Keep intermediate files"]

@@ -12,7 +12,7 @@ digraph ChapterCutFlow {
   probe [label="ffprobe: H.264, source start time,\nnearby keyframes", fillcolor="#e0f4f4"];
   bounds [shape=diamond, label="Valid boundaries\nwithin one frame?", fillcolor="#fff2cc"];
   interval [label="Resolved episode interval", fillcolor="#dceeff"];
-  error [label="Stop episode; write error to audit", fillcolor="#ffe1e1", color="#c76d6d"];
+  error [label="Stop episode; write error to audit if enabled", fillcolor="#ffe1e1", color="#c76d6d"];
 
   subgraph cluster_video {
     label="Video"; color="#a8c8ef"; style="rounded"; fontname="DejaVu Sans";
@@ -41,7 +41,7 @@ digraph ChapterCutFlow {
   text [label="Rust: prepare ASS/SRT and\ncollect fonts, if configured", fillcolor="#fff2e2"];
   mux [label="mkvmerge: combine prepared tracks,\nchapters, fonts and tags", fillcolor="#dceeff"];
   partial [label="Temporary final MKV"];
-  output [label="Publish episode MKV\nand audit.json", fillcolor="#ddf7e3", color="#72ad7d"];
+  output [label="Publish episode MKV\nand optional audit.json", fillcolor="#ddf7e3", color="#72ad7d"];
   next [shape=diamond, label="More episodes?", fillcolor="#fff2cc"];
   repeat [label="Process next episode\nwith the same steps", fillcolor="#dceeff"];
   done [label="Batch complete", fillcolor="#ddf7e3"];

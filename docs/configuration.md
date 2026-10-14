@@ -16,6 +16,7 @@ Templates that pass `--mode plan --no-check` are in [configs](configs/): [simple
 | `[project].output` | string | `'{show}.{ep}.mkv'` | Output filename template. Must resolve to a basename ending in `.mkv`. |
 | `[project].title` | string | empty | Container title template. |
 | `[project].fps` | string | `'24000/1001'` | Positive rational CFR rate accepted by the FPS parser. |
+| `[project].audit` | boolean | `true` | Write an episode audit JSON in the work directory and beside the output MKV. Set `false` to write neither file; terminal output remains available. |
 | `[project].clean_work_dirs` | boolean | `false` | Remove an episode work directory after successful output. |
 | `[project].continue_on_error` | boolean | `false` | Continue after an episode execution failure; batch still exits with an error. |
 | `[tools].ffmpeg` | string | `'ffmpeg'` | FFmpeg executable. |

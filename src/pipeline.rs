@@ -1579,6 +1579,9 @@ fn check_cached(
 }
 impl Audit {
     fn save(&self) -> Result<()> {
+        if !self.configuration.project.audit {
+            return Ok(());
+        }
         std::fs::write(
             self.plan.work.join("audit.json"),
             serde_json::to_vec_pretty(self)?,
@@ -2083,13 +2086,15 @@ fn run_episode(
         std::fs::remove_file(partial)?;
         audit.state = "complete".into();
         audit.save()?;
-        let report = plan.output.with_extension("audit.json");
-        ensure!(
-            !report.exists(),
-            "Audit report already exists: {}",
-            report.display()
-        );
-        std::fs::copy(plan.work.join("audit.json"), report)?;
+        if cfg.project.audit {
+            let report = plan.output.with_extension("audit.json");
+            ensure!(
+                !report.exists(),
+                "Audit report already exists: {}",
+                report.display()
+            );
+            std::fs::copy(plan.work.join("audit.json"), report)?;
+        }
         publish_step.done();
         Ok(())
     })();
@@ -2112,11 +2117,13 @@ pub fn run(cfg: &Config, base: &Path, plans: &[EpisodePlan]) -> Result<()> {
             "Output already exists: {}",
             plan.output.display()
         );
-        ensure!(
-            !plan.output.with_extension("audit.json").exists(),
-            "Audit report already exists: {}",
-            plan.output.with_extension("audit.json").display()
-        );
+        if cfg.for_episode(&plan.episode).project.audit {
+            ensure!(
+                !plan.output.with_extension("audit.json").exists(),
+                "Audit report already exists: {}",
+                plan.output.with_extension("audit.json").display()
+            );
+        }
         ensure!(
             !plan.work.exists(),
             "Workdir already exists: {}",

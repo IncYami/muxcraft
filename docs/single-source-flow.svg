@@ -46,9 +46,9 @@
 <!-- work -->
 <g id="node4" class="node">
 <title>work</title>
-<path fill="#fff2e2" stroke="#8297b0" d="M916.24,-1108.03C916.24,-1108.03 807.76,-1108.03 807.76,-1108.03 801.76,-1108.03 795.76,-1102.03 795.76,-1096.03 795.76,-1096.03 795.76,-1077.19 795.76,-1077.19 795.76,-1071.19 801.76,-1065.19 807.76,-1065.19 807.76,-1065.19 916.24,-1065.19 916.24,-1065.19 922.24,-1065.19 928.24,-1071.19 928.24,-1077.19 928.24,-1077.19 928.24,-1096.03 928.24,-1096.03 928.24,-1102.03 922.24,-1108.03 916.24,-1108.03"/>
-<text xml:space="preserve" text-anchor="middle" x="862" y="-1089.66" font-family="DejaVu Sans" font-size="11.00">Create work/EP and</text>
-<text xml:space="preserve" text-anchor="middle" x="862" y="-1076.16" font-family="DejaVu Sans" font-size="11.00">start audit.json</text>
+<path fill="#fff2e2" stroke="#8297b0" d="M921.12,-1108.03C921.12,-1108.03 802.88,-1108.03 802.88,-1108.03 796.88,-1108.03 790.88,-1102.03 790.88,-1096.03 790.88,-1096.03 790.88,-1077.19 790.88,-1077.19 790.88,-1071.19 796.88,-1065.19 802.88,-1065.19 802.88,-1065.19 921.12,-1065.19 921.12,-1065.19 927.12,-1065.19 933.12,-1071.19 933.12,-1077.19 933.12,-1077.19 933.12,-1096.03 933.12,-1096.03 933.12,-1102.03 927.12,-1108.03 921.12,-1108.03"/>
+<text xml:space="preserve" text-anchor="middle" x="862" y="-1089.66" font-family="DejaVu Sans" font-size="11.00">Create work/EP; start</text>
+<text xml:space="preserve" text-anchor="middle" x="862" y="-1076.16" font-family="DejaVu Sans" font-size="11.00">audit.json if enabled</text>
 </g>
 <!-- preflight&#45;&gt;work -->
 <g id="edge3" class="edge">
@@ -66,7 +66,7 @@
 <!-- work&#45;&gt;video -->
 <g id="edge4" class="edge">
 <title>work&#45;&gt;video</title>
-<path fill="none" stroke="#64748b" d="M795.42,-1082.82C704.66,-1077.44 537.97,-1061.96 403,-1017.94 329.06,-993.83 250.52,-947.91 205.27,-919.2"/>
+<path fill="none" stroke="#64748b" d="M790.72,-1082.53C698.99,-1076.9 535.67,-1061.21 403,-1017.94 329.06,-993.83 250.52,-947.91 205.27,-919.2"/>
 <polygon fill="#64748b" stroke="#64748b" points="206.79,-917.26 199.57,-915.56 204.15,-921.39 206.79,-917.26"/>
 </g>
 <!-- audio -->
@@ -79,8 +79,8 @@
 <!-- work&#45;&gt;audio -->
 <g id="edge5" class="edge">
 <title>work&#45;&gt;audio</title>
-<path fill="none" stroke="#64748b" d="M795.55,-1065.4C729.21,-1045.22 628.09,-1014.46 563.54,-994.82"/>
-<polygon fill="#64748b" stroke="#64748b" points="564.32,-992.5 556.91,-992.8 562.89,-997.18 564.32,-992.5"/>
+<path fill="none" stroke="#64748b" d="M793.44,-1064.75C727.12,-1044.58 627.52,-1014.28 563.64,-994.85"/>
+<polygon fill="#64748b" stroke="#64748b" points="564.51,-992.55 557.1,-992.86 563.08,-997.24 564.51,-992.55"/>
 <text xml:space="preserve" text-anchor="middle" x="742.78" y="-1038.64" font-family="DejaVu Sans" font-size="9.00">yes</text>
 </g>
 <!-- pgs -->
@@ -119,7 +119,7 @@
 <!-- work&#45;&gt;chapter -->
 <g id="edge14" class="edge">
 <title>work&#45;&gt;chapter</title>
-<path fill="none" stroke="#64748b" d="M928.58,-1079.76C992.37,-1070.08 1079,-1044.36 1079,-976.1 1079,-976.1 1079,-976.1 1079,-770.16 1079,-722.8 1091.08,-668.87 1099.65,-636.58"/>
+<path fill="none" stroke="#64748b" d="M933.35,-1079.02C996.6,-1068.78 1079,-1042.67 1079,-976.1 1079,-976.1 1079,-976.1 1079,-770.16 1079,-722.8 1091.08,-668.87 1099.65,-636.58"/>
 <polygon fill="#64748b" stroke="#64748b" points="1101.99,-637.32 1101.45,-629.93 1097.26,-636.04 1101.99,-637.32"/>
 </g>
 <!-- tags -->
@@ -131,7 +131,7 @@
 <!-- work&#45;&gt;tags -->
 <g id="edge15" class="edge">
 <title>work&#45;&gt;tags</title>
-<path fill="none" stroke="#64748b" d="M928.46,-1079.89C987.32,-1073.9 1068.12,-1063.12 1096,-1047.19 1150.03,-1016.33 1191.2,-953.39 1211,-918.51"/>
+<path fill="none" stroke="#64748b" d="M933.6,-1079.36C991.94,-1073.27 1068.92,-1062.66 1096,-1047.19 1150.03,-1016.33 1191.2,-953.39 1211,-918.51"/>
 <polygon fill="#64748b" stroke="#64748b" points="1213.12,-919.73 1214.38,-912.42 1208.84,-917.35 1213.12,-919.73"/>
 </g>
 <!-- mux -->
@@ -289,7 +289,7 @@
 <title>output</title>
 <path fill="#ddf7e3" stroke="#72ad7d" d="M824.37,-407.54C824.37,-407.54 641.63,-407.54 641.63,-407.54 635.63,-407.54 629.63,-401.54 629.63,-395.54 629.63,-395.54 629.63,-376.7 629.63,-376.7 629.63,-370.7 635.63,-364.7 641.63,-364.7 641.63,-364.7 824.37,-364.7 824.37,-364.7 830.37,-364.7 836.37,-370.7 836.37,-376.7 836.37,-376.7 836.37,-395.54 836.37,-395.54 836.37,-401.54 830.37,-407.54 824.37,-407.54"/>
 <text xml:space="preserve" text-anchor="middle" x="733" y="-389.17" font-family="DejaVu Sans" font-size="11.00">Publish MKV without overwriting;</text>
-<text xml:space="preserve" text-anchor="middle" x="733" y="-375.67" font-family="DejaVu Sans" font-size="11.00">copy adjacent audit.json</text>
+<text xml:space="preserve" text-anchor="middle" x="733" y="-375.67" font-family="DejaVu Sans" font-size="11.00">copy audit.json if enabled</text>
 </g>
 <!-- mux&#45;&gt;output -->
 <g id="edge26" class="edge">

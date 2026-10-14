@@ -36,7 +36,7 @@ flowchart TD
     CG --> MX
     TEXT["Rust: prepare ASS/SRT and collect fonts when configured"] --> MX
     MX --> TMP["Temporary final MKV"]
-    TMP --> OUT["Publish episode MKV and audit.json"]
+    TMP --> OUT["Publish episode MKV and optional audit.json"]
     OUT --> NEXT{"More episodes in batch?"}
     NEXT -- Yes --> REPEAT["Process the next episode with the same steps"]
     NEXT -- No --> DONE["Batch complete"]

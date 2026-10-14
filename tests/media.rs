@@ -50,6 +50,49 @@ fn pgs_fixture() -> Vec<u8> {
 }
 
 #[test]
+fn disables_audit_files_without_disabling_mux() {
+    if !available("ffmpeg") || !available("ffprobe") || !available("mkvmerge") {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source.mkv");
+    cmd(
+        "ffmpeg",
+        &[
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=64x64:r=24",
+            "-t",
+            "1",
+            "-c:v",
+            "libx264",
+            source.to_str().unwrap(),
+        ],
+    );
+    let config = dir.path().join("batch.toml");
+    std::fs::write(
+        &config,
+        "[project]\nshow='NoAudit'\nout_dir='out'\nwork_dir='work'\nfps='24'\naudit=false\n[subtitles.fonts]\nenabled=false\n[episodes]\n01='source.mkv'\n[VideoTrack.01]\nsource='{episodes}'\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\n",
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
+        .arg(&config)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(dir.path().join("out/NoAudit.01.mkv").is_file());
+    assert!(!dir.path().join("out/NoAudit.01.audit.json").exists());
+    assert!(!dir.path().join("work/01/audit.json").exists());
+}
+
+#[test]
 fn cuts_shared_m2ts_and_verifies_extracted_tracks() {
     if !available("ffmpeg") || !available("ffprobe") || !available("flac") || !available("mkvmerge")
     {

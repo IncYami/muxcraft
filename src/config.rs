@@ -336,6 +336,8 @@ pub struct Project {
     pub title: String,
     #[serde(default = "fps")]
     pub fps: String,
+    #[serde(default = "yes")]
+    pub audit: bool,
     #[serde(default)]
     pub clean_work_dirs: bool,
     #[serde(default)]
