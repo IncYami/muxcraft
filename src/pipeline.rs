@@ -8,7 +8,7 @@ use crate::{
     tmdb,
 };
 use anyhow::{Context, Result, bail, ensure};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -19,7 +19,6 @@ use std::{
 
 fn ffmpeg_output(program: &str, args: &[String], label: &str) -> Result<std::process::Output> {
     use std::process::Stdio;
-    crate::ui::command(program, args);
     let frame_total = args
         .windows(2)
         .find(|pair| pair[0] == "-frames:v")
@@ -88,41 +87,10 @@ struct IdentTrack {
     #[serde(rename = "type")]
     kind: String,
 }
-#[derive(Debug, Serialize)]
-struct CommandRecord {
-    program: String,
-    args: Vec<String>,
-    status: Option<i32>,
+struct CommandRunner<'a> {
+    cfg: &'a Config,
 }
-#[derive(Debug, Serialize)]
-struct Audit {
-    plan: EpisodePlan,
-    configuration: Config,
-    state: String,
-    commands: Vec<CommandRecord>,
-    fonts: Vec<crate::fonts::CollectedFont>,
-    error: Option<String>,
-    chapter_source: Option<PathBuf>,
-    chapter_timing: Option<ChapterTiming>,
-    cut: Option<CutAudit>,
-}
-#[derive(Debug, Serialize)]
-struct CutAudit {
-    resolved: ResolvedCut,
-    source_video_sha256: Option<String>,
-    copied_video_sha256: Option<String>,
-    source_video_packets: Option<u64>,
-    copied_video_packets: Option<u64>,
-    source_audio_sha256: BTreeMap<String, String>,
-    cut_audio_sha256: BTreeMap<String, String>,
-    source_audio_pcm_bytes: BTreeMap<String, u64>,
-    cut_audio_pcm_bytes: BTreeMap<String, u64>,
-    audio_sample_ranges: BTreeMap<String, AudioSampleRange>,
-    source_pgs_sha256: BTreeMap<String, String>,
-    cut_pgs_sha256: BTreeMap<String, String>,
-    pgs_segments: BTreeMap<String, usize>,
-}
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 struct AudioSampleRange {
     first_source_sample_pts_seconds: f64,
     sample_rate: u32,
@@ -130,7 +98,7 @@ struct AudioSampleRange {
     end_sample: u64,
     decoded_end_sample: u64,
 }
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 struct ChapterTiming {
     playlist_duration_ms: i64,
     video_duration_ms: Option<i64>,
@@ -411,7 +379,6 @@ fn source_read_bound(cut: &ResolvedCut) -> f64 {
 
 fn cut_video(
     cfg: &Config,
-    audit: &mut Audit,
     source: &Path,
     track: usize,
     cut: &ResolvedCut,
@@ -470,13 +437,8 @@ fn cut_video(
         "tee".into(),
         tee_output,
     ];
+    crate::ui::command(&cfg.tools.ffmpeg, &args);
     let result = ffmpeg_output(&cfg.tools.ffmpeg, &args, "Cut video")?;
-    audit.commands.push(CommandRecord {
-        program: cfg.tools.ffmpeg.clone(),
-        args,
-        status: result.status.code(),
-    });
-    audit.save()?;
     ensure!(
         result.status.success(),
         "Cut video and source hash failed: {}",
@@ -500,12 +462,7 @@ fn cut_video(
     Ok((output, (hash.to_owned(), packets)))
 }
 
-fn video_sha256(
-    cfg: &Config,
-    audit: &mut Audit,
-    source: &Path,
-    track: usize,
-) -> Result<(String, u64)> {
+fn video_sha256(cfg: &Config, source: &Path, track: usize) -> Result<(String, u64)> {
     let mut args = vec![
         "-nostdin".into(),
         "-hide_banner".into(),
@@ -531,13 +488,8 @@ fn video_sha256(
         "SHA256".into(),
         "-".into(),
     ]);
+    crate::ui::command(&cfg.tools.ffmpeg, &args);
     let output = ffmpeg_output(&cfg.tools.ffmpeg, &args, "Verify video")?;
-    audit.commands.push(CommandRecord {
-        program: cfg.tools.ffmpeg.clone(),
-        args,
-        status: output.status.code(),
-    });
-    audit.save()?;
     ensure!(
         output.status.success(),
         "Video hash failed: {}",
@@ -560,13 +512,7 @@ fn video_sha256(
     Ok((hash.into(), packets))
 }
 
-fn pcm_sha256(
-    cfg: &Config,
-    audit: &mut Audit,
-    source: &Path,
-    track: usize,
-    codec: &str,
-) -> Result<(String, u64)> {
+fn pcm_sha256(cfg: &Config, source: &Path, track: usize, codec: &str) -> Result<(String, u64)> {
     let mut args = vec![
         "-nostdin".into(),
         "-hide_banner".into(),
@@ -623,12 +569,6 @@ fn pcm_sha256(
     let stderr = error_thread
         .join()
         .map_err(|_| anyhow::anyhow!("FFmpeg diagnostic reader panicked"))??;
-    audit.commands.push(CommandRecord {
-        program: cfg.tools.ffmpeg.clone(),
-        args,
-        status: status.code(),
-    });
-    audit.save()?;
     ensure!(
         status.success(),
         "PCM hash failed: {}",
@@ -692,7 +632,7 @@ fn first_packet_ms(program: &str, source: &Path, kind: &str, track: usize) -> Re
 
 fn extract_audio(
     cfg: &Config,
-    audit: &mut Audit,
+    runner: &CommandRunner<'_>,
     track: &Track,
     source: &Path,
     work: &Path,
@@ -769,6 +709,10 @@ fn extract_audio(
             0..0,
             ["-progress".into(), "pipe:2".into(), "-nostats".into()],
         );
+        crate::ui::detail(&format!(
+            "Extract cut audio and hash source PCM: {}",
+            track.id
+        ));
         crate::ui::command(&cfg.tools.ffmpeg, &args);
         let progress = crate::ui::Progress::new(&format!("Audio {} PCM", track.id), None);
         let mut child = Command::new(&cfg.tools.ffmpeg)
@@ -800,12 +744,6 @@ fn extract_audio(
         let stderr = error_thread
             .join()
             .map_err(|_| anyhow::anyhow!("FFmpeg diagnostic reader panicked"))??;
-        audit.commands.push(CommandRecord {
-            program: cfg.tools.ffmpeg.clone(),
-            args,
-            status: status.code(),
-        });
-        audit.save()?;
         ensure!(
             status.success(),
             "Cut audio extraction and source PCM hash failed: {}",
@@ -839,14 +777,16 @@ fn extract_audio(
                 .checked_add(actual_samples)
                 .context("Decoded source sample range overflowed")?;
         }
-        Some((
-            digest
-                .finalize()
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect(),
-            bytes,
-        ))
+        let hash = digest
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        crate::ui::detail(&format!(
+            "{} source PCM SHA-256: {} ({} bytes)",
+            track.id, hash, bytes
+        ));
+        Some((hash, bytes))
     } else {
         let mut args = vec!["-nostdin".into(), "-hide_banner".into(), "-n".into()];
         if let Some(cut) = cut {
@@ -889,7 +829,7 @@ fn extract_audio(
             }
         }
         args.push(extracted.to_string_lossy().into());
-        audit.command(&cfg.tools.ffmpeg, args, false)?;
+        runner.command(&cfg.tools.ffmpeg, args, false)?;
         None
     };
     if track.codec == "copy" {
@@ -918,7 +858,7 @@ fn extract_audio(
             pcm_codec(stream).into(),
             pcm.to_string_lossy().into(),
         ];
-        audit.command(&cfg.tools.ffmpeg, args, false)?;
+        runner.command(&cfg.tools.ffmpeg, args, false)?;
         pcm
     };
     let output = work.join(format!("{}.flac", track.id));
@@ -935,7 +875,7 @@ fn extract_audio(
         settings.push(format!("--threads={threads}"));
     }
     args.push(input.to_string_lossy().into());
-    audit.command(&cfg.tools.flac, args, false)?;
+    runner.command(&cfg.tools.flac, args, false)?;
     Ok(PreparedAudio {
         path: output,
         source_pcm: cut.map(|_| extracted),
@@ -1577,20 +1517,10 @@ fn check_cached(
     }
     Ok(())
 }
-impl Audit {
-    fn save(&self) -> Result<()> {
-        if !self.configuration.project.audit {
-            return Ok(());
-        }
-        std::fs::write(
-            self.plan.work.join("audit.json"),
-            serde_json::to_vec_pretty(self)?,
-        )?;
-        Ok(())
-    }
-    fn command(&mut self, program: &str, mut args: Vec<String>, warning_ok: bool) -> Result<()> {
-        let mkvmerge = program == self.configuration.tools.mkvmerge;
-        let ffmpeg = program == self.configuration.tools.ffmpeg;
+impl CommandRunner<'_> {
+    fn command(&self, program: &str, mut args: Vec<String>, warning_ok: bool) -> Result<()> {
+        let mkvmerge = program == self.cfg.tools.mkvmerge;
+        let ffmpeg = program == self.cfg.tools.ffmpeg;
         if mkvmerge && !args.iter().any(|arg| arg == "--gui-mode") {
             args.insert(0, "--gui-mode".into());
         }
@@ -1599,15 +1529,8 @@ impl Audit {
                 0..0,
                 ["-progress".into(), "pipe:2".into(), "-nostats".into()],
             );
-        } else {
-            crate::ui::command(program, &args);
         }
-        self.commands.push(CommandRecord {
-            program: program.into(),
-            args: args.clone(),
-            status: None,
-        });
-        self.save()?;
+        crate::ui::command(program, &args);
         let mut tool_error = None;
         let status = if mkvmerge {
             crate::ui::run_mkvmerge(program, &args)?.status
@@ -1625,8 +1548,6 @@ impl Audit {
             }
             output.status
         };
-        self.commands.last_mut().unwrap().status = status.code();
-        self.save()?;
         ensure!(
             status.success() || (warning_ok && status.code() == Some(1)),
             "{program} exited with {status}{}",
@@ -1752,20 +1673,27 @@ fn run_episode(
             plan.work.display()
         )
     })?;
-    let mut audit = Audit {
-        plan: plan.clone(),
-        configuration: cfg.clone(),
-        state: "running".into(),
-        commands: Vec::new(),
-        fonts: Vec::new(),
-        error: None,
-        chapter_source: None,
-        chapter_timing: None,
-        cut: None,
-    };
-    audit.save()?;
+    let runner = CommandRunner { cfg };
     let result = (|| -> Result<()> {
         let cut = cuts::resolve(cfg, plan)?;
+        if let Some(cut) = &cut {
+            crate::ui::detail(&format!(
+                "Cut interval: {:.6}–{:.6} s; chapters {}..{}; {} video frames",
+                cut.start_seconds,
+                cut.end_seconds,
+                cut.start_chapter,
+                cut.end_chapter
+                    .map_or_else(|| "playlist OUT".into(), |value| value.to_string()),
+                cut.video_frames
+            ));
+            crate::ui::detail(&format!(
+                "Playlist: {}; keyframe boundary deviations: start {:.3} ms, end {}",
+                cut.playlist.display(),
+                cut.start_deviation_ms,
+                cut.end_deviation_ms
+                    .map_or_else(|| "playlist OUT".into(), |value| format!("{value:.3} ms"))
+            ));
+        }
         let cutoff = if has_text_subtitles(cfg, plan) {
             subtitle_cutoff(cfg, plan, cut.as_ref())?
         } else {
@@ -1774,25 +1702,12 @@ fn run_episode(
         let mut cut_video_path = None;
         if let Some(ref cut) = cut {
             let cut_step = crate::ui::Step::new("Cut video and hash source");
-            audit.cut = Some(CutAudit {
-                resolved: cut.clone(),
-                source_video_sha256: None,
-                copied_video_sha256: None,
-                source_video_packets: None,
-                copied_video_packets: None,
-                source_audio_sha256: BTreeMap::new(),
-                cut_audio_sha256: BTreeMap::new(),
-                source_audio_pcm_bytes: BTreeMap::new(),
-                cut_audio_pcm_bytes: BTreeMap::new(),
-                audio_sample_ranges: BTreeMap::new(),
-                source_pgs_sha256: BTreeMap::new(),
-                cut_pgs_sha256: BTreeMap::new(),
-                pgs_segments: BTreeMap::new(),
-            });
-            audit.save()?;
             let video = &plan.tracks[0];
-            let (path, source_hash) =
-                cut_video(cfg, &mut audit, &plan.source, video.track, cut, &plan.work)?;
+            let (path, source_hash) = cut_video(cfg, &plan.source, video.track, cut, &plan.work)?;
+            crate::ui::detail(&format!(
+                "Source video SHA-256: {} ({} packets)",
+                source_hash.0, source_hash.1
+            ));
             ensure!(
                 source_hash.1 == cut.video_frames,
                 "Cut requested {} video frames but copied {}",
@@ -1801,17 +1716,15 @@ fn run_episode(
             );
             cut_step.done();
             let verify_step = crate::ui::Step::new("Verify cut video hash and packet count");
-            let copied_hash = video_sha256(cfg, &mut audit, &path, 0)?;
+            let copied_hash = video_sha256(cfg, &path, 0)?;
+            crate::ui::detail(&format!(
+                "Cut video SHA-256: {} ({} packets)",
+                copied_hash.0, copied_hash.1
+            ));
             ensure!(
                 source_hash == copied_hash,
                 "Cut video differs from the original H.264 picture data or packet count"
             );
-            let record = audit.cut.as_mut().unwrap();
-            record.source_video_sha256 = Some(source_hash.0);
-            record.source_video_packets = Some(source_hash.1);
-            record.copied_video_sha256 = Some(copied_hash.0);
-            record.copied_video_packets = Some(copied_hash.1);
-            audit.save()?;
             verify_step.done();
             cut_video_path = Some(path);
         }
@@ -1822,7 +1735,7 @@ fn run_episode(
             for source in plan.sources.iter().skip(1) {
                 join.push(format!("+{}", source.display()));
             }
-            audit.command(&cfg.tools.mkvmerge, join, true)?;
+            runner.command(&cfg.tools.mkvmerge, join, true)?;
             ensure!(
                 plan.source.is_file(),
                 "mkvmerge did not create the joined source"
@@ -1831,14 +1744,13 @@ fn run_episode(
         }
         let dir = plan.output.parent().unwrap();
         std::fs::create_dir_all(dir)?;
-        // Temporary output in the destination filesystem; hard_link publishes without overwrite.
+        // Keep the mux hidden in the destination filesystem until it is complete.
         let partial = dir.join(format!(
-            ".{}.{}.partial.mkv",
+            ".{}",
             plan.output
-                .file_stem()
-                .context("Output has no filename stem")?
-                .to_string_lossy(),
-            std::process::id()
+                .file_name()
+                .context("Output has no filename")?
+                .to_string_lossy()
         ));
         ensure!(
             !partial.exists(),
@@ -1860,14 +1772,30 @@ fn run_episode(
                 chapter.source.clone()
             };
             args.extend(["--chapters".into(), path.to_string_lossy().into()]);
-            audit.chapter_source = Some(chapter.source);
-            audit.chapter_timing = chapter.timing;
-            audit.save()?;
+            crate::ui::detail(&format!("Chapters: {}", chapter.source.display()));
+            if let Some(timing) = chapter.timing {
+                crate::ui::detail(&format!(
+                    "Chapter cutoff: {} frames ({}); playlist {} ms, video {} ms ({})",
+                    timing.cutoff_frames,
+                    timing.cutoff_source,
+                    timing.playlist_duration_ms,
+                    timing
+                        .video_duration_ms
+                        .map_or_else(|| "unknown".into(), |value| value.to_string()),
+                    timing.video_duration_source.as_deref().unwrap_or("unknown")
+                ));
+                if let Some(difference) = timing.difference_ms {
+                    crate::ui::detail(&format!("Video minus playlist duration: {difference} ms"));
+                }
+            }
         }
         if let (Some(t), Some(client)) = (&cfg.tmdb, client) {
+            let tags_step = crate::ui::Step::new("Prepare TMDB tags");
             let path = plan.work.join("global-tags.xml");
             std::fs::write(&path, client.tags(t, ep)?)?;
             args.extend(["--global-tags".into(), path.to_string_lossy().into()]);
+            crate::ui::detail(&format!("TMDB tags: {}", path.display()));
+            tags_step.done();
         }
         for arg in &cfg.mux_args {
             args.push(expand(arg, &plan.vars)?);
@@ -1877,6 +1805,13 @@ fn run_episode(
         let mut order = Vec::new();
         for (file_index, tp) in plan.tracks.iter().enumerate() {
             let track_step = crate::ui::Step::new(format!("Prepare {} ({})", tp.id, tp.category));
+            crate::ui::detail(&format!(
+                "Source: {} (track {}; {} / {})",
+                tp.source.display(),
+                tp.track,
+                tp.name,
+                tp.language
+            ));
             let mut t = config_track(cfg, &tp.id, &ep.id);
             let (path, id) = if tp.category == "audio" {
                 let selected_cut = cut.as_ref().filter(|_| tp.source == plan.source);
@@ -1896,7 +1831,7 @@ fn run_episode(
                 };
                 let prepared = extract_audio(
                     cfg,
-                    &mut audit,
+                    &runner,
                     &t,
                     &tp.source,
                     &plan.work,
@@ -1905,32 +1840,30 @@ fn run_episode(
                     range.as_ref(),
                 )?;
                 if let Some(pcm) = &prepared.source_pcm {
+                    let verify_audio =
+                        crate::ui::Step::new(format!("Verify cut audio PCM: {}", tp.id));
                     let codec = pcm_codec(&stream);
                     let original = prepared
                         .source_pcm_hash
                         .clone()
                         .context("Missing source PCM hash from cut extraction")?;
-                    let extracted = pcm_sha256(cfg, &mut audit, pcm, 0, codec)?;
+                    let extracted = pcm_sha256(cfg, pcm, 0, codec)?;
+                    crate::ui::detail(&format!(
+                        "{} cut PCM SHA-256: {} ({} bytes)",
+                        tp.id, extracted.0, extracted.1
+                    ));
                     let matches_source = original == extracted;
-                    let record = audit.cut.as_mut().unwrap();
-                    record.source_audio_sha256.insert(tp.id.clone(), original.0);
-                    record
-                        .source_audio_pcm_bytes
-                        .insert(tp.id.clone(), original.1);
-                    record
-                        .cut_audio_sha256
-                        .insert(tp.id.clone(), extracted.0.clone());
-                    record
-                        .cut_audio_pcm_bytes
-                        .insert(tp.id.clone(), extracted.1);
-                    record.audio_sample_ranges.insert(
-                        tp.id.clone(),
-                        prepared
-                            .source_sample_range
-                            .clone()
-                            .context("Missing source audio sample range")?,
-                    );
-                    audit.save()?;
+                    if let Some(range) = &prepared.source_sample_range {
+                        crate::ui::detail(&format!(
+                            "{} samples: {}..{} requested, decoded through {} at {} Hz (first source PTS {:.6} s)",
+                            tp.id,
+                            range.start_sample,
+                            range.end_sample,
+                            range.decoded_end_sample,
+                            range.sample_rate,
+                            range.first_source_sample_pts_seconds
+                        ));
+                    }
                     ensure!(
                         matches_source,
                         "Cut audio {} differs from corresponding source PCM samples (source {} bytes, cut {} bytes)",
@@ -1938,6 +1871,7 @@ fn run_episode(
                         original.1,
                         extracted.1
                     );
+                    verify_audio.done();
                 }
                 for (key, value) in prepared.tags {
                     t.tags.entry(key).or_insert(value);
@@ -1973,7 +1907,7 @@ fn run_episode(
                         "copy".into(),
                         target.to_string_lossy().into(),
                     ]);
-                    audit.command(&cfg.tools.ffmpeg, extract_args, false)?;
+                    runner.command(&cfg.tools.ffmpeg, extract_args, false)?;
                     if let Some(cut) = selected_cut {
                         let verify_pgs = crate::ui::Step::new(format!("Verify cut PGS: {}", tp.id));
                         let first_source =
@@ -1991,17 +1925,14 @@ fn run_episode(
                             start_pts,
                             end_pts,
                         )?;
-                        let record = audit.cut.as_mut().unwrap();
-                        record
-                            .source_pgs_sha256
-                            .insert(tp.id.clone(), integrity.source_sha256);
-                        record
-                            .cut_pgs_sha256
-                            .insert(tp.id.clone(), integrity.cut_sha256);
-                        record
-                            .pgs_segments
-                            .insert(tp.id.clone(), integrity.segments);
-                        audit.save()?;
+                        crate::ui::detail(&format!(
+                            "{} source PGS SHA-256: {} ({} segments)",
+                            tp.id, integrity.source_sha256, integrity.segments
+                        ));
+                        crate::ui::detail(&format!(
+                            "{} cut PGS SHA-256: {} ({} segments; timestamps verified)",
+                            tp.id, integrity.cut_sha256, integrity.segments
+                        ));
                         verify_pgs.done();
                     }
                     let id = pgs_track(&identify(&cfg.tools.mkvmerge, &extracted)?, 0)?.0;
@@ -2052,8 +1983,16 @@ fn run_episode(
             track_step.done();
         }
         if cfg.fonts.enabled {
-            audit.fonts = index.collect(&used, &plan.work.join("fonts"))?;
-            for font in &audit.fonts {
+            let fonts_step = crate::ui::Step::new("Collect fonts");
+            let fonts = index.collect(&used, &plan.work.join("fonts"))?;
+            crate::ui::detail(&format!("Collected {} font files", fonts.len()));
+            for font in &fonts {
+                crate::ui::detail(&format!(
+                    "Font: {} <- {} (SHA-256 {})",
+                    font.path.display(),
+                    font.source.display(),
+                    font.sha256
+                ));
                 let extension = font.path.extension().and_then(|s| s.to_str()).unwrap_or("");
                 let mime = match extension {
                     "otf" => "font/otf",
@@ -2069,10 +2008,11 @@ fn run_episode(
                     font.path.to_string_lossy().into(),
                 ]);
             }
+            fonts_step.done();
         }
         args.extend(["--track-order".into(), order.join(",")]);
         let mux_step = crate::ui::Step::new("Mux output");
-        audit.command(&cfg.tools.mkvmerge, args, true)?;
+        runner.command(&cfg.tools.mkvmerge, args, true)?;
         ensure!(partial.is_file(), "mkvmerge did not produce an output file");
         mux_step.done();
         let publish_step = crate::ui::Step::new("Publish output");
@@ -2083,26 +2023,15 @@ fn run_episode(
                 partial.display()
             )
         })?;
-        std::fs::remove_file(partial)?;
-        audit.state = "complete".into();
-        audit.save()?;
-        if cfg.project.audit {
-            let report = plan.output.with_extension("audit.json");
-            ensure!(
-                !report.exists(),
-                "Audit report already exists: {}",
-                report.display()
-            );
-            std::fs::copy(plan.work.join("audit.json"), report)?;
+        if let Err(error) = std::fs::remove_file(&partial) {
+            crate::ui::warning(&format!(
+                "Published MKV, but could not remove temporary name {}: {error}",
+                partial.display()
+            ));
         }
         publish_step.done();
         Ok(())
     })();
-    if let Err(e) = &result {
-        audit.state = "failed".into();
-        audit.error = Some(format!("{e:#}"));
-        audit.save()?;
-    }
     if result.is_ok() && cfg.project.clean_work_dirs {
         std::fs::remove_dir_all(&plan.work)?;
     }
@@ -2117,13 +2046,6 @@ pub fn run(cfg: &Config, base: &Path, plans: &[EpisodePlan]) -> Result<()> {
             "Output already exists: {}",
             plan.output.display()
         );
-        if cfg.for_episode(&plan.episode).project.audit {
-            ensure!(
-                !plan.output.with_extension("audit.json").exists(),
-                "Audit report already exists: {}",
-                plan.output.with_extension("audit.json").display()
-            );
-        }
         ensure!(
             !plan.work.exists(),
             "Workdir already exists: {}",

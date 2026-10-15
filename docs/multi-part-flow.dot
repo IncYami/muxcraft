@@ -6,7 +6,7 @@ digraph MultiPartFlow {
   toml [label="Batch TOML\nordered [episodes] clip list; no cut", fillcolor="#dceeff"];
   plan [label="Rust: resolve clips and build\nthe episode plan"];
   preflight [label="Preflight: inspect clips\nand configured tracks"];
-  work [label="Create work/EP; start\naudit.json if enabled", fillcolor="#fff2e2"];
+  work [label="Create work/EP; report steps\nand commands in CLI", fillcolor="#fff2e2"];
   join [label="mkvmerge: append clip 1 + clip 2 + ...\nwithout video encoding", fillcolor="#dceeff"];
   joined [label="Intermediate work/EP/\nfirst-source.joined.mkv", fillcolor="#e8f1ff"];
   variable [label="{episodes} resolves to joined MKV\nfor configured tracks", fillcolor="#dceeff"];
@@ -24,7 +24,7 @@ digraph MultiPartFlow {
   chapter [label="Rust: chapter file or explicit\nframe chapters", fillcolor="#fff2e2"];
   tags [label="Rust: optional track and TMDB tags", fillcolor="#fff2e2"];
   mux [label="mkvmerge: combine tracks, chapters,\nfonts and tags into temporary MKV", fillcolor="#dceeff"];
-  output [label="Publish MKV without overwriting;\ncopy audit.json if enabled", fillcolor="#ddf7e3", color="#72ad7d"];
+  output [label="Publish MKV without overwriting", fillcolor="#ddf7e3", color="#72ad7d"];
   clean [shape=diamond, label="clean_work_dirs?", fillcolor="#fff2cc"];
   remove [label="Remove work/EP, including joined MKV"];
   keep [label="Keep joined MKV and intermediates"];

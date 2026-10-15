@@ -12,6 +12,18 @@ fn cmd(program: &str, args: &[&str]) {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+fn logged_hash<'a>(log: &'a str, label: &str) -> &'a str {
+    let line = log
+        .lines()
+        .find(|line| line.trim_start().starts_with(label))
+        .unwrap_or_else(|| panic!("Missing log entry: {label}"));
+    line.trim_start()
+        .strip_prefix(label)
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap()
+}
 fn put16(bytes: &mut [u8], offset: usize, value: u16) {
     bytes[offset..offset + 2].copy_from_slice(&value.to_be_bytes());
 }
@@ -50,7 +62,7 @@ fn pgs_fixture() -> Vec<u8> {
 }
 
 #[test]
-fn disables_audit_files_without_disabling_mux() {
+fn mux_logs_commands_without_writing_audit_files() {
     if !available("ffmpeg") || !available("ffprobe") || !available("mkvmerge") {
         return;
     }
@@ -75,7 +87,7 @@ fn disables_audit_files_without_disabling_mux() {
     let config = dir.path().join("batch.toml");
     std::fs::write(
         &config,
-        "[project]\nshow='NoAudit'\nout_dir='out'\nwork_dir='work'\nfps='24'\naudit=false\n[subtitles.fonts]\nenabled=false\n[episodes]\n01='source.mkv'\n[VideoTrack.01]\nsource='{episodes}'\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\n",
+        "[project]\nshow='NoAudit'\nout_dir='out'\nwork_dir='work'\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01='source.mkv'\n[VideoTrack.01]\nsource='{episodes}'\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\n",
     )
     .unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
@@ -90,6 +102,10 @@ fn disables_audit_files_without_disabling_mux() {
     assert!(dir.path().join("out/NoAudit.01.mkv").is_file());
     assert!(!dir.path().join("out/NoAudit.01.audit.json").exists());
     assert!(!dir.path().join("work/01/audit.json").exists());
+    assert!(!dir.path().join("out/.NoAudit.01.mkv").exists());
+    let log = String::from_utf8_lossy(&output.stderr);
+    assert!(log.contains("$ mkvmerge --gui-mode -o"), "{log}");
+    assert!(log.contains(".NoAudit.01.mkv"), "{log}");
 }
 
 #[test]
@@ -259,99 +275,28 @@ fn cuts_shared_m2ts_and_verifies_extracted_tracks() {
         let chapter_entries = chapter_json["chapters"].as_array().unwrap();
         assert_eq!(chapter_entries.len(), 1);
         assert_eq!(chapter_entries[0]["start_time"], "0.000000");
-        let audit: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(base.join(format!("out/Split.{episode}.audit.json"))).unwrap(),
-        )
-        .unwrap();
+        assert!(!final_path.with_extension("audit.json").exists());
+        let episode_log = stderr
+            .split(&format!("Episode {episode} ("))
+            .nth(1)
+            .unwrap();
         if episode == "01" {
-            assert_eq!(audit["cut"]["resolved"]["video_frames"], 768);
+            assert!(episode_log.contains("768 video frames"));
         }
         assert_eq!(
-            audit["cut"]["source_video_sha256"],
-            audit["cut"]["copied_video_sha256"]
+            logged_hash(episode_log, "Source video SHA-256: "),
+            logged_hash(episode_log, "Cut video SHA-256: ")
         );
-        let cut_command = &audit["commands"];
-        let wav_command = cut_command
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|command| {
-                command["program"] == "ffmpeg"
-                    && command["args"]
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .any(|arg| arg == "-rf64")
-            })
-            .expect("cut WAV extraction command");
-        let wav_args = wav_command["args"].as_array().unwrap();
-        assert!(
-            wav_args
-                .windows(2)
-                .any(|args| args[0] == "-rf64" && args[1] == "always")
-        );
-        assert!(wav_args.iter().any(|arg| arg == "-bitexact"));
-        let source_video_reads = cut_command
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|command| {
-                let args = command["args"].as_array().unwrap();
-                args.windows(2)
-                    .any(|pair| pair[0] == "-i" && pair[1] == source.to_string_lossy().as_ref())
-                    && args
-                        .windows(2)
-                        .any(|pair| pair[0] == "-map" && pair[1] == "0:v:0")
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(source_video_reads.len(), 1);
-        assert!(
-            source_video_reads[0]["args"]
-                .as_array()
-                .unwrap()
-                .windows(2)
-                .any(|pair| pair[0] == "-f" && pair[1] == "tee")
-        );
-        assert!(audit["cut"].get("final_video_sha256").is_none());
-        assert_eq!(
-            cut_command.as_array().unwrap().last().unwrap()["program"],
-            "mkvmerge"
-        );
-        let audio = &audit["cut"];
-        assert_eq!(
-            audio["source_audio_sha256"]["AudioTrack.01"],
-            audio["cut_audio_sha256"]["AudioTrack.01"]
-        );
-        assert!(audio.get("final_audio_sha256").is_none());
-        assert_eq!(
-            audio["source_audio_pcm_bytes"]["AudioTrack.01"],
-            audio["cut_audio_pcm_bytes"]["AudioTrack.01"]
-        );
-        assert!(audio.get("final_audio_pcm_bytes").is_none());
-        assert!(
-            audio["cut_audio_pcm_bytes"]["AudioTrack.01"]
-                .as_u64()
-                .unwrap()
-                > 0
-        );
-        let range = &audio["audio_sample_ranges"]["AudioTrack.01"];
-        assert!(range["end_sample"].as_u64().unwrap() > range["start_sample"].as_u64().unwrap());
-        assert!(
-            range["decoded_end_sample"].as_u64().unwrap() <= range["end_sample"].as_u64().unwrap()
-        );
-        if episode == "01" {
-            assert_eq!(range["decoded_end_sample"], range["end_sample"]);
-        } else {
-            assert!(
-                range["decoded_end_sample"].as_u64().unwrap()
-                    < range["end_sample"].as_u64().unwrap()
+        for track in ["AudioTrack.01", "AudioTrack.02"] {
+            assert_eq!(
+                logged_hash(episode_log, &format!("{track} source PCM SHA-256: ")),
+                logged_hash(episode_log, &format!("{track} cut PCM SHA-256: "))
             );
         }
-        assert_eq!(range["sample_rate"], 48000);
-        assert_eq!(
-            audio["source_audio_sha256"]["AudioTrack.02"],
-            audio["cut_audio_sha256"]["AudioTrack.02"]
-        );
+        assert!(episode_log.contains("-rf64 always"));
+        assert!(episode_log.contains("-bitexact"));
+        assert!(episode_log.contains("-f tee"));
+        assert!(episode_log.contains("at 48000 Hz"));
     }
     let raw = |path: &Path, interval: Option<(f64, f64)>| {
         let mut command = Command::new("ffmpeg");
@@ -479,6 +424,7 @@ fn joins_m2ts_clips_before_extracting_audio() {
     let config = "[project]\nshow='Joined'\nout_dir='out'\nwork_dir='work'\nclean_work_dirs=false\n[subtitles.fonts]\nenabled=false\n[episodes]\n'01'=['a.m2ts','b.m2ts']\n[chapters]\n'01'=[{frame=0,name='First'},{frame=24,name='Second'}]\n[VideoTrack.01]\nsource='{episodes}'\n[AudioTrack.01]\nsource='{episodes}'\ncodec='flac'\n[mux]\n'VideoTrack.01'={name='Video',language='ja-JP'}\n'AudioTrack.01'={name='Audio',language='ja-JP'}\n";
     let config_path = base.join("batch.toml");
     std::fs::write(&config_path, config).unwrap();
+    let mut run_log = String::new();
     for mode in ["check", "run"] {
         let out = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
             .arg(&config_path)
@@ -490,6 +436,9 @@ fn joins_m2ts_clips_before_extracting_audio() {
             "{mode}: {}",
             String::from_utf8_lossy(&out.stderr)
         );
+        if mode == "run" {
+            run_log = String::from_utf8(out.stderr).unwrap();
+        }
     }
     let output = base.join("out/Joined.01.mkv");
     assert!(output.is_file());
@@ -516,14 +465,12 @@ fn joins_m2ts_clips_before_extracting_audio() {
         (1.9..2.2).contains(&duration),
         "joined duration: {duration}"
     );
-    let audit: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(output.with_extension("audit.json")).unwrap())
-            .unwrap();
-    assert_eq!(audit["commands"][0]["program"], "mkvmerge");
-    assert_eq!(audit["plan"]["sources"].as_array().unwrap().len(), 2);
+    assert!(run_log.contains("Starting: Join source clips"));
+    assert!(run_log.contains("$ mkvmerge --gui-mode -o"));
+    assert!(!output.with_extension("audit.json").exists());
 }
 #[test]
-fn bdmv_chapters_use_video_duration_for_terminal_mark_and_audit() {
+fn bdmv_chapters_use_video_duration_for_terminal_mark_and_cli() {
     if !available("ffmpeg") || !available("ffprobe") || !available("mkvmerge") {
         return;
     }
@@ -573,6 +520,7 @@ fn bdmv_chapters_use_video_duration_for_terminal_mark_and_audit() {
     let config = "[project]\nshow='ChapterTest'\nout_dir='out'\nwork_dir='work'\nclean_work_dirs=false\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n'01'='BDMV/STREAM/00001.m2ts'\n[chapters]\n'01'=['First','Middle','Tail']\n[VideoTrack.01]\nsource='{episodes}'\n[mux]\n'VideoTrack.01'={name='Video',language='ja-JP'}\n";
     let config_path = base.join("batch.toml");
     std::fs::write(&config_path, config).unwrap();
+    let mut run_log = String::new();
     for mode in ["check", "run"] {
         let output = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
             .arg(&config_path)
@@ -584,19 +532,18 @@ fn bdmv_chapters_use_video_duration_for_terminal_mark_and_audit() {
             "{mode}: {}",
             String::from_utf8_lossy(&output.stderr)
         );
+        if mode == "run" {
+            run_log = String::from_utf8(output.stderr).unwrap();
+        }
     }
     let chapters = std::fs::read_to_string(base.join("work/01/chapters.txt")).unwrap();
     assert!(chapters.contains("CHAPTER03=00:00:08.000"));
-    let audit: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(base.join("out/ChapterTest.01.audit.json")).unwrap())
-            .unwrap();
-    assert_eq!(audit["chapter_timing"]["playlist_duration_ms"], 10000);
-    assert_eq!(audit["chapter_timing"]["cutoff_frames"], 264);
-    assert_ne!(audit["chapter_timing"]["cutoff_source"], "playlist");
-    assert!(audit["chapter_timing"]["difference_ms"].as_i64().unwrap() > 500);
+    assert!(run_log.contains("Chapter cutoff: 264 frames"));
+    assert!(run_log.contains("playlist 10000 ms"));
+    assert!(!base.join("out/ChapterTest.01.audit.json").exists());
 }
 #[test]
-fn real_batch_flac_copy_subtitles_chapters_flags_and_audit() {
+fn real_batch_flac_copy_subtitles_chapters_flags_and_cli() {
     if !available("ffmpeg") || !available("flac") || !available("mkvmerge") {
         eprintln!("Media test requires ffmpeg, flac, and mkvmerge");
         return;
@@ -762,44 +709,12 @@ pgs_alt={name='Second PGS',language='ja-JP'}
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
+    let run_log = String::from_utf8_lossy(&out.stderr);
     for ep in ["01", "02"] {
         let output = base.join(format!("out/Test.{ep}.mkv"));
         assert!(output.exists());
         assert!(!base.join(format!("work/{ep}")).exists());
-        let audit: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(output.with_extension("audit.json")).unwrap())
-                .unwrap();
-        assert_eq!(audit["state"], "complete");
-        assert_eq!(audit["commands"].as_array().unwrap().len(), 9);
-        assert_eq!(audit["commands"][1]["program"], "flac");
-        let flac_args = audit["commands"][1]["args"].as_array().unwrap();
-        assert!(flac_args.iter().any(|arg| arg == "--verify"));
-        assert!(flac_args.iter().any(|arg| arg == "-8"));
-        assert_eq!(audit["commands"][5]["program"], "ffmpeg");
-        assert!(
-            audit["commands"][5]["args"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|arg| arg == "pcm_s24le")
-        );
-        assert_eq!(audit["commands"][6]["program"], "flac");
-        assert_eq!(audit["commands"][7]["program"], "ffmpeg");
-        let pgs_args = audit["commands"][7]["args"].as_array().unwrap();
-        assert!(
-            pgs_args
-                .windows(2)
-                .any(|args| args[0] == "-map" && args[1] == "0:s:2")
-        );
-        assert!(
-            pgs_args
-                .windows(2)
-                .any(|args| args[0] == "-c" && args[1] == "copy")
-        );
-        let mux_args = audit["commands"][8]["args"].as_array().unwrap();
-        assert!(mux_args.iter().any(|arg| arg == "--no-global-tags"));
-        assert!(mux_args.iter().any(|arg| arg == "--no-chapters"));
-        assert_eq!(audit["configuration"]["project"]["show"], "Test");
+        assert!(!output.with_extension("audit.json").exists());
         let out = Command::new("mkvmerge")
             .arg("-J")
             .arg(&output)
@@ -823,7 +738,7 @@ pgs_alt={name='Second PGS',language='ja-JP'}
         assert!(tracks[9]["codec"].as_str().unwrap().contains("PGS"));
         if with_font {
             assert_eq!(info["attachments"].as_array().unwrap().len(), 1);
-            assert_eq!(audit["fonts"].as_array().unwrap().len(), 1);
+            assert!(run_log.contains("Collected 1 font files"));
         }
         let tags = Command::new("mkvextract")
             .arg(&output)
@@ -891,6 +806,12 @@ pgs_alt={name='Second PGS',language='ja-JP'}
             assert_eq!(hash(&output), input.stdout);
         }
     }
+    assert!(run_log.contains("$ flac -8 -o"), "{run_log}");
+    assert!(run_log.contains("--verify"), "{run_log}");
+    assert!(run_log.contains("pcm_s24le"), "{run_log}");
+    assert!(run_log.contains("-map 0:s:2 -c copy"), "{run_log}");
+    assert!(run_log.contains("--no-global-tags"), "{run_log}");
+    assert!(run_log.contains("--no-chapters"), "{run_log}");
     let second = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
         .arg(config_path)
         .output()
@@ -900,7 +821,7 @@ pgs_alt={name='Second PGS',language='ja-JP'}
 }
 
 #[test]
-fn episode_config_is_used_for_mux_and_audit() {
+fn episode_config_is_used_for_mux_and_cli() {
     if !available("ffmpeg") || !available("mkvmerge") {
         return;
     }
@@ -1011,17 +932,9 @@ CR12={name='Commentary',language='en'}
     assert!(names(&first).contains(&"US".to_owned()));
     assert!(!names(&first).contains(&"Commentary".to_owned()));
     assert!(names(&second).contains(&"Commentary".to_owned()));
-    let audit: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(base.join("out/EpisodeConfig.01.audit.json")).unwrap(),
-    )
-    .unwrap();
-    let us = audit["plan"]["tracks"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|t| t["id"] == "US")
-        .unwrap();
-    assert!(us["source"].as_str().unwrap().ends_with("replacement.srt"));
+    let log = String::from_utf8_lossy(&output.stderr);
+    assert!(log.contains("replacement.srt"), "{log}");
+    assert!(!base.join("out/EpisodeConfig.01.audit.json").exists());
 }
 
 #[test]
@@ -1125,19 +1038,21 @@ fn video_source_can_keep_audio_subtitles_attachments_and_set_colour() {
         .output()
         .unwrap();
     assert!(String::from_utf8_lossy(&tags.stdout).contains("SOURCE_MARKER"));
-    let audit: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(output.with_extension("audit.json")).unwrap())
-            .unwrap();
-    let args = audit["commands"][0]["args"].as_array().unwrap();
-    assert!(!args.iter().any(|arg| arg == "--no-global-tags"));
-    assert!(!args.iter().any(|arg| arg == "--no-chapters"));
+    assert!(!output.with_extension("audit.json").exists());
+    let log = String::from_utf8_lossy(&run.stderr);
+    let mux_command = log
+        .lines()
+        .find(|line| line.contains("$ mkvmerge --gui-mode -o"))
+        .unwrap();
+    assert!(!mux_command.contains("--no-global-tags"));
+    assert!(!mux_command.contains("--no-chapters"));
     for flag in [
         "--colour-range",
         "--colour-primaries",
         "--colour-transfer-characteristics",
         "--colour-matrix",
     ] {
-        assert!(args.iter().any(|arg| arg == flag));
+        assert!(mux_command.contains(flag));
     }
 }
 #[test]

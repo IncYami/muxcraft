@@ -6,7 +6,7 @@ digraph SingleSourceFlow {
   toml [label="Batch TOML\none [episodes] source; no cut", fillcolor="#dceeff"];
   plan [label="Rust: expand paths and build\nthe episode plan"];
   preflight [label="Preflight: inspect sources, tracks,\nchapters and fonts"];
-  work [label="Create work/EP; start\naudit.json if enabled", fillcolor="#fff2e2"];
+  work [label="Create work/EP; report steps\nand commands in CLI", fillcolor="#fff2e2"];
   video [label="VideoTrack: original source directly\nmkvmerge selects the video track", fillcolor="#e8f1ff"];
   audio [shape=diamond, label="AudioTrack\nconfigured?", fillcolor="#fff2cc"];
   extract [label="ffprobe identifies audio;\nffmpeg extracts selected stream", fillcolor="#e7f7ed"];
@@ -20,7 +20,7 @@ digraph SingleSourceFlow {
   chapter [label="Rust: supplied chapters or OGM\nfrom frames/BDMV", fillcolor="#fff2e2"];
   tags [label="Rust: optional track and TMDB tags", fillcolor="#fff2e2"];
   mux [label="mkvmerge: combine tracks, chapters,\nfonts and tags into temporary MKV", fillcolor="#dceeff"];
-  output [label="Publish MKV without overwriting;\ncopy audit.json if enabled", fillcolor="#ddf7e3", color="#72ad7d"];
+  output [label="Publish MKV without overwriting", fillcolor="#ddf7e3", color="#72ad7d"];
   clean [shape=diamond, label="clean_work_dirs?", fillcolor="#fff2cc"];
   remove [label="Remove work/EP"];
   keep [label="Keep intermediates"];

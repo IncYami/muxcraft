@@ -8,15 +8,6 @@ static VERBOSE: OnceLock<bool> = OnceLock::new();
 
 pub fn initialize(verbose: bool) {
     let _ = VERBOSE.set(verbose);
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(if verbose {
-            tracing::Level::DEBUG
-        } else {
-            tracing::Level::WARN
-        })
-        .with_writer(std::io::stderr)
-        .without_time()
-        .try_init();
 }
 
 pub fn verbose() -> bool {
@@ -156,8 +147,26 @@ impl Drop for Step {
 }
 
 pub fn command(program: &str, args: &[String]) {
-    if verbose() {
-        tracing::debug!(program, args = ?args, "running command");
+    let rendered = std::iter::once(program)
+        .chain(args.iter().map(String::as_str))
+        .map(shell_arg)
+        .collect::<Vec<_>>()
+        .join(" ");
+    eprintln!("    $ {rendered}");
+}
+
+fn shell_arg(arg: &str) -> String {
+    if !arg.is_empty()
+        && arg
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_@%+=:,./-".contains(c))
+    {
+        return arg.to_owned();
+    }
+    if cfg!(windows) {
+        format!("'{}'", arg.replace('\'', "''"))
+    } else {
+        format!("'{}'", arg.replace('\'', "'\\''"))
     }
 }
 
@@ -388,7 +397,18 @@ pub fn collect_ffmpeg_progress<R: std::io::Read>(
 
 #[cfg(test)]
 mod tests {
-    use super::{ffmpeg_progress_line, mkvmerge_progress_line};
+    use super::{ffmpeg_progress_line, mkvmerge_progress_line, shell_arg};
+
+    #[test]
+    fn quotes_command_arguments_with_spaces_and_apostrophes() {
+        assert_eq!(shell_arg("-map"), "-map");
+        assert_eq!(shell_arg("a b"), "'a b'");
+        if cfg!(windows) {
+            assert_eq!(shell_arg("it's"), "'it''s'");
+        } else {
+            assert_eq!(shell_arg("it's"), "'it'\\''s'");
+        }
+    }
 
     #[test]
     fn parses_ffmpeg_progress_protocol() {

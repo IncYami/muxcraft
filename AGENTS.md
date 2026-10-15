@@ -20,7 +20,7 @@ Use Rust 2024 style and rustfmt defaults (four-space indentation). Prefer small 
 
 ## Testing Guidelines
 
-Add focused unit tests for parsing and transformations; use `tests/core.rs` for configuration and CLI behavior and `tests/media.rs` for real media-tool flows. Test meaningful failure cases and audit output when changing cut or mux behavior. There is no numeric coverage target. Run the full test suite before opening a pull request.
+Add focused unit tests for parsing and transformations; use `tests/core.rs` for configuration and CLI behavior and `tests/media.rs` for real media-tool flows. Test meaningful failure cases and CLI output when changing cut or mux behavior. There is no numeric coverage target. Run the full test suite before opening a pull request.
 
 ## Commits & Pull Requests
 

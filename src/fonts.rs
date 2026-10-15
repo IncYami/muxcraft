@@ -1,6 +1,5 @@
 use crate::{font_metadata, subtitle::Ass};
 use anyhow::{Context, Result, ensure};
-use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -27,7 +26,7 @@ pub struct Face {
 pub struct FontIndex {
     pub faces: Vec<Face>,
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
 pub struct CollectedFont {
     pub source: PathBuf,
     pub path: PathBuf,

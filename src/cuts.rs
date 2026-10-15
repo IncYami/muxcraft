@@ -4,10 +4,10 @@ use crate::{
     subtitle::Fps,
 };
 use anyhow::{Context, Result, ensure};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::{path::Path, process::Command};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct ResolvedCut {
     pub playlist: std::path::PathBuf,
     pub input_ticks: u32,

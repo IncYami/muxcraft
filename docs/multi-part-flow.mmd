@@ -1,7 +1,7 @@
 flowchart TD
     A["Batch TOML: ordered file list in [episodes], no chapter cut"] --> B["Rust: resolve every clip and build the episode plan"]
     B --> C["Preflight: inspect clips and configured tracks"]
-    C --> W["Create work/EP; start audit.json if enabled"]
+    C --> W["Create work/EP; report steps and commands in CLI"]
     W --> JOIN["mkvmerge: append clip 1 + clip 2 + ... without video encoding"]
     JOIN --> JFILE["Intermediate work/EP/first-source.joined.mkv"]
     JFILE --> VAR["{episodes} resolves to the joined MKV for configured tracks"]
@@ -27,7 +27,7 @@ flowchart TD
     SUB --> MX
     CH --> MX
     TAG --> MX
-    MX --> OUT["Publish final MKV without overwriting; copy audit.json if enabled"]
+    MX --> OUT["Publish final MKV without overwriting"]
     OUT --> CLEAN{"clean_work_dirs?"}
     CLEAN -- Yes --> RM["Remove work/EP, including the joined MKV"]
     CLEAN -- No --> KEEP["Keep joined MKV and other intermediates"]

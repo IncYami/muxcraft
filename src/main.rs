@@ -23,7 +23,7 @@ struct Cli {
     /// Check or run only the specified episode IDs (comma separated)
     #[arg(long, value_delimiter = ',')]
     episodes: Vec<String>,
-    /// Show commands and detailed tool diagnostics
+    /// Show detailed tool diagnostics in addition to the standard command log
     #[arg(long, global = true)]
     verbose: bool,
 }
