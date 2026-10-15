@@ -394,8 +394,12 @@ fn joins_m2ts_clips_before_extracting_audio() {
     }
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path();
-    for (name, color, tone) in [("a", "black", "440"), ("b", "white", "880")] {
-        let path = base.join(format!("{name}.m2ts"));
+    let stream = base.join("BDMV/STREAM");
+    let playlist = base.join("BDMV/PLAYLIST");
+    std::fs::create_dir_all(&stream).unwrap();
+    std::fs::create_dir_all(&playlist).unwrap();
+    for (name, color, tone) in [("00001", "black", "440"), ("00002", "white", "880")] {
+        let path = stream.join(format!("{name}.m2ts"));
         cmd(
             "ffmpeg",
             &[
@@ -421,7 +425,25 @@ fn joins_m2ts_clips_before_extracting_audio() {
             ],
         );
     }
-    let config = "[project]\nshow='Joined'\nout_dir='out'\nwork_dir='work'\nclean_work_dirs=false\n[subtitles.fonts]\nenabled=false\n[episodes]\n'01'=['a.m2ts','b.m2ts']\n[chapters]\n'01'=[{frame=0,name='First'},{frame=24,name='Second'}]\n[VideoTrack.01]\nsource='{episodes}'\n[AudioTrack.01]\nsource='{episodes}'\ncodec='flac'\n[mux]\n'VideoTrack.01'={name='Video',language='ja-JP'}\n'AudioTrack.01'={name='Audio',language='ja-JP'}\n";
+    let marks_offset = 32 + 10 + 2 * 22;
+    let mut mpls = vec![0_u8; marks_offset + 6 + 2 * 14];
+    mpls[..4].copy_from_slice(b"MPLS");
+    put32(&mut mpls, 8, 32);
+    put32(&mut mpls, 12, marks_offset as u32);
+    put16(&mut mpls, 38, 2);
+    for (i, clip) in ["00001", "00002"].into_iter().enumerate() {
+        let pos = 42 + i * 22;
+        put16(&mut mpls, pos, 20);
+        mpls[pos + 2..pos + 7].copy_from_slice(clip.as_bytes());
+        mpls[pos + 7..pos + 11].copy_from_slice(b"M2TS");
+        put32(&mut mpls, pos + 18, 45000);
+        let mark = marks_offset + 6 + i * 14;
+        mpls[mark + 1] = 1;
+        put16(&mut mpls, mark + 2, i as u16);
+    }
+    put16(&mut mpls, marks_offset + 4, 2);
+    std::fs::write(playlist.join("00001.mpls"), mpls).unwrap();
+    let config = "[project]\nshow='Joined'\nout_dir='out'\nwork_dir='work'\nclean_work_dirs=false\n[subtitles.fonts]\nenabled=false\n[episodes]\n01=['BDMV/STREAM/00001.m2ts','BDMV/STREAM/00002.m2ts']\n[VideoTrack.01]\nsource='{episodes}'\n[AudioTrack.01]\nsource='{episodes}'\ncodec='flac'\n[mux]\n'VideoTrack.01'={name='Video',language='ja-JP'}\n'AudioTrack.01'={name='Audio',language='ja-JP'}\n";
     let config_path = base.join("batch.toml");
     std::fs::write(&config_path, config).unwrap();
     let mut run_log = String::new();
@@ -442,7 +464,7 @@ fn joins_m2ts_clips_before_extracting_audio() {
     }
     let output = base.join("out/Joined.01.mkv");
     assert!(output.is_file());
-    assert!(base.join("work/01/a.joined.mkv").is_file());
+    assert!(base.join("work/01/00001.joined.mkv").is_file());
     let out = Command::new("ffprobe")
         .args([
             "-v",
@@ -465,7 +487,26 @@ fn joins_m2ts_clips_before_extracting_audio() {
         (1.9..2.2).contains(&duration),
         "joined duration: {duration}"
     );
+    let chapter_probe = Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "chapter=start_time",
+            "-of",
+            "json",
+        ])
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert!(chapter_probe.status.success());
+    let chapter_json: serde_json::Value = serde_json::from_slice(&chapter_probe.stdout).unwrap();
+    let chapter_entries = chapter_json["chapters"].as_array().unwrap();
+    assert_eq!(chapter_entries.len(), 2);
+    assert_eq!(chapter_entries[0]["start_time"], "0.000000");
+    assert_eq!(chapter_entries[1]["start_time"], "1.000000");
     assert!(run_log.contains("Starting: Join source clips"));
+    assert!(run_log.contains("Auto chapters: 2 marks from"));
     assert!(run_log.contains("$ mkvmerge --gui-mode -o"));
     assert!(!output.with_extension("audit.json").exists());
 }

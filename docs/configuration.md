@@ -4,7 +4,7 @@ Muxcraft reads TOML. Unknown fields in structured tables are errors. Strings are
 
 Relative paths are resolved from the main configuration file's directory, including paths in episode overlay files. `{config_dir}`, `{show}`, `{ep}`, and `{episodes}` expand to the config directory, project show, current episode ID, and episode source. In a multipart episode, `{episodes}` is the joined work file. Variables may reference other variables; unknown, circular, and reserved variable names are errors.
 
-Templates that pass `--mode plan --no-check` are in [configs](configs/): [simple batch](configs/simple-batch.toml), [joined clips](configs/joined-parts.toml), [chapter cut](configs/chapter-cut.toml), and [per-episode overlay](configs/per-episode-overlay.toml). Replace their placeholder media paths before using `--mode check` or running a mux.
+Templates that pass `--mode plan --no-check` are in [configs](configs/): [simple batch](configs/simple-batch.toml), [joined clips](configs/joined-parts.toml), [joined BDMV](configs/joined-bdmv.toml), [chapter cut](configs/chapter-cut.toml), and [per-episode overlay](configs/per-episode-overlay.toml). Replace their placeholder media paths before using `--mode check` or running a mux.
 
 ## Root tables
 
@@ -24,10 +24,12 @@ Templates that pass `--mode plan --no-check` are in [configs](configs/): [simple
 | `[tools].mkvmerge` | string | `'mkvmerge'` | MKVToolNix muxer executable. |
 | `[vars]` | string or table | empty | String values are global variables. `{ from = 'ep', offset = N, pad = N }` derives a padded numeric episode value; `from` must be `ep`, pad 1–10, and each result positive. A nested `[vars.NAME]` groups a string value to episode IDs. Reserved names: `config_dir`, `show`, `ep`, `episodes`, `source`. |
 | `[episodes]` | string, string array, or table | required | Ordered episode map. IDs contain ASCII letters/digits, `-`, `_`; IDs must be unique. A string is one source; an array is ordered clips to join. A table requires `source`, `start_chapter`, and optional `end_chapter` to cut an M2TS at one-based chapter boundaries; end is exclusive. A `.toml` string names an episode overlay file. At least one episode is required. |
-| `[chapters]` | string, string array, or table array | empty | Per-episode chapters: file path (`.txt`/`.xml`), names array (BDMV playlist times), or `{ frame, name }` entries. Referenced episode IDs must exist. Use either configured chapters or `chapters = true` on a video track, not both. |
+| `[chapters]` | string, string array, or table array | automatic for joined BDMV clips | Per-episode chapters: file path (`.txt`/`.xml`), names array (BDMV playlist times), or `{ frame, name }` entries. Referenced episode IDs must exist. Use either configured chapters or `chapters = true` on a video track, not both. |
 | `mux_args` | string array | empty | Additional global mkvmerge arguments, each as one argument. |
 
 `[tools]` values may be executable names found on `PATH` or explicit executable paths.
+
+For an ordered list of `.m2ts` files in one `BDMV/STREAM` directory, Muxcraft searches its sibling `PLAYLIST` directory for an MPLS file with exactly the same clip order. If found, it converts chapter marks from each PlayItem to the joined timeline and adds them automatically. A mark near the playlist end is omitted. If no playlist matches, the joined video has no automatic chapters and the CLI warns. If matching playlists disagree on chapter times, configure `[chapters]` explicitly. A `[chapters]` entry overrides automatic chapter discovery; a string array supplies names for the discovered marks. `chapters = true` on a video track retains embedded chapters instead of triggering MPLS discovery.
 
 ## Track sources and mux metadata
 

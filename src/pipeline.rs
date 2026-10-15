@@ -1223,10 +1223,43 @@ fn chapter_data(
     plan: &EpisodePlan,
     resolved_cut: Option<&ResolvedCut>,
 ) -> Result<Option<ChapterData>> {
-    let Some(c) = &ep.chapters else {
-        return Ok(None);
-    };
     let fps = Fps::parse(&cfg.project.fps)?;
+    if ep.chapters.is_none() {
+        if cfg
+            .video
+            .iter()
+            .any(|track| track.chapters && track.enabled(&ep.id))
+        {
+            return Ok(None);
+        }
+        if plan.sources.len() < 2 {
+            return Ok(None);
+        }
+        let Some((playlist, chapters)) = chapters::bdmv_joined(&plan.sources, fps)? else {
+            if plan.sources[0]
+                .parent()
+                .is_some_and(|parent| parent.file_name().is_some_and(|name| name == "STREAM"))
+            {
+                crate::ui::warning(&format!(
+                    "Episode {} has no MPLS playlist matching its ordered clips; no chapters will be added.",
+                    ep.id
+                ));
+            }
+            return Ok(None);
+        };
+        let entries = chapters::name_times(chapters.times, &[])?;
+        crate::ui::detail(&format!(
+            "Auto chapters: {} marks from {}",
+            entries.len(),
+            playlist.display()
+        ));
+        return Ok(Some(ChapterData {
+            content: Some(chapters::ogm(&entries)?),
+            source: playlist,
+            timing: None,
+        }));
+    }
+    let c = ep.chapters.as_ref().unwrap();
     match c {
         ChapterSpec::File(path) => {
             let path = absolute(base, &expand(path, &plan.vars)?);
@@ -1279,11 +1312,21 @@ fn chapter_data(
                     timing: None,
                 }));
             }
-            ensure!(
-                plan.sources.len() == 1,
-                "Episode {} uses multiple source clips; use explicit frame chapters or a TXT/XML chapter file",
-                ep.id
-            );
+            if plan.sources.len() > 1 {
+                let (playlist, chapters) = chapters::bdmv_joined(&plan.sources, fps)?
+                    .context("No MPLS playlist matches the ordered chapter source clips")?;
+                let entries = chapters::name_times(chapters.times, names)?;
+                crate::ui::detail(&format!(
+                    "BDMV chapters: {} marks from {}",
+                    entries.len(),
+                    playlist.display()
+                ));
+                return Ok(Some(ChapterData {
+                    content: Some(chapters::ogm(&entries)?),
+                    source: playlist,
+                    timing: None,
+                }));
+            }
             let video = &plan.tracks[0];
             let track = if video.source == plan.source {
                 video.track

@@ -17,6 +17,7 @@ fn committed_documentation_configs_load_and_plan() {
     for config in [
         "simple-batch.toml",
         "joined-parts.toml",
+        "joined-bdmv.toml",
         "chapter-cut.toml",
         "per-episode-overlay.toml",
     ] {
@@ -516,6 +517,90 @@ fn mpls_fixture() -> Vec<u8> {
         put32(&mut b, p + 4, 45000 * seconds);
     }
     b
+}
+fn joined_mpls_fixture(clips: [&str; 3], middle_mark: u32) -> Vec<u8> {
+    let marks_offset = 32 + 10 + 3 * 22;
+    let mut b = vec![0u8; marks_offset + 6 + 3 * 14];
+    b[..4].copy_from_slice(b"MPLS");
+    put32(&mut b, 8, 32);
+    put32(&mut b, 12, marks_offset as u32);
+    put16(&mut b, 38, 3);
+    for (i, (clip, (input, output))) in clips
+        .into_iter()
+        .zip([(600, 610), (609, 629), (622, 632)])
+        .enumerate()
+    {
+        let pos = 42 + i * 22;
+        put16(&mut b, pos, 20);
+        b[pos + 2..pos + 7].copy_from_slice(clip.as_bytes());
+        b[pos + 7..pos + 11].copy_from_slice(b"M2TS");
+        put32(&mut b, pos + 14, input * 45000);
+        put32(&mut b, pos + 18, output * 45000);
+    }
+    put16(&mut b, marks_offset + 4, 3);
+    for (i, (item, tick)) in [
+        (0, 600 * 45000),
+        (1, middle_mark * 45000),
+        (2, 631 * 45000 + 44000),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let pos = marks_offset + 6 + i * 14;
+        b[pos + 1] = 1;
+        put16(&mut b, pos + 2, item);
+        put32(&mut b, pos + 4, tick);
+    }
+    b
+}
+#[test]
+fn joined_bdmv_chapters_follow_exact_clip_order_and_playitem_timing() {
+    let dir = tempfile::tempdir().unwrap();
+    let bdmv = dir.path().join("BDMV");
+    let stream = bdmv.join("STREAM");
+    let playlists = bdmv.join("PLAYLIST");
+    std::fs::create_dir_all(&stream).unwrap();
+    std::fs::create_dir_all(&playlists).unwrap();
+    for clip in ["00001", "00002", "00003", "00004", "00005"] {
+        std::fs::write(stream.join(format!("{clip}.m2ts")), b"").unwrap();
+    }
+    std::fs::write(
+        playlists.join("00004.mpls"),
+        joined_mpls_fixture(["00002", "00003", "00005"], 614),
+    )
+    .unwrap();
+    std::fs::write(
+        playlists.join("00012.mpls"),
+        joined_mpls_fixture(["00001", "00003", "00004"], 614),
+    )
+    .unwrap();
+    for (clips, expected) in [
+        (["00002", "00003", "00005"], "00004.mpls"),
+        (["00001", "00003", "00004"], "00012.mpls"),
+    ] {
+        let sources = clips
+            .map(|clip| stream.join(format!("{clip}.m2ts")))
+            .to_vec();
+        let (playlist, chapters) = chapters::bdmv_joined(&sources, Fps::parse("24").unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(playlist, playlists.join(expected));
+        assert_eq!(chapters.times, [0, 15000]);
+        assert_eq!(chapters.duration_ms, 40000);
+    }
+    let wrong_order = ["00003", "00002", "00005"].map(|clip| stream.join(format!("{clip}.m2ts")));
+    assert!(
+        chapters::bdmv_joined(&wrong_order, Fps::parse("24").unwrap())
+            .unwrap()
+            .is_none()
+    );
+    std::fs::write(
+        playlists.join("00013.mpls"),
+        joined_mpls_fixture(["00002", "00003", "00005"], 615),
+    )
+    .unwrap();
+    let jp = ["00002", "00003", "00005"].map(|clip| stream.join(format!("{clip}.m2ts")));
+    assert!(chapters::bdmv_joined(&jp, Fps::parse("24").unwrap()).is_err());
 }
 #[test]
 fn mpls_offsets_marks_and_terminal_cutoff() {

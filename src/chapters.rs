@@ -317,6 +317,141 @@ pub fn bdmv(
     }
     Ok(matches.remove(0))
 }
+
+/// Find a playlist whose PlayItems exactly match the ordered BDMV clips.
+/// The same source clips may appear in other playlists in a different order.
+pub fn bdmv_joined(sources: &[PathBuf], fps: Fps) -> Result<Option<(PathBuf, PlaylistChapters)>> {
+    if sources.len() < 2 {
+        return Ok(None);
+    }
+    let stream = sources[0]
+        .parent()
+        .context("Source has no parent directory")?;
+    if !stream.file_name().is_some_and(|name| name == "STREAM")
+        || sources.iter().any(|source| {
+            source.parent() != Some(stream)
+                || !source
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("m2ts"))
+        })
+    {
+        return Ok(None);
+    }
+    let clips = sources
+        .iter()
+        .map(|source| {
+            source
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned())
+                .context("Source has no clip name")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let directory = stream
+        .parent()
+        .context("STREAM has no BDMV directory")?
+        .join("PLAYLIST");
+    if !directory.is_dir() {
+        return Ok(None);
+    }
+    let mut matches = Vec::new();
+    for entry in std::fs::read_dir(&directory)? {
+        let path = entry?.path();
+        if !path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("mpls"))
+        {
+            continue;
+        }
+        if let Some(chapters) = parse_joined_mpls(&std::fs::read(&path)?, &clips, fps)
+            .with_context(|| format!("Playlist {}", path.display()))?
+        {
+            matches.push((path, chapters));
+        }
+    }
+    matches.sort_by(|a, b| a.0.cmp(&b.0));
+    if matches.is_empty() {
+        return Ok(None);
+    }
+    if matches
+        .iter()
+        .skip(1)
+        .any(|(_, chapters)| chapters != &matches[0].1)
+    {
+        bail!(
+            "Playlists have different chapters for joined clips: {:?}; configure [chapters] explicitly",
+            matches.iter().map(|(path, _)| path).collect::<Vec<_>>()
+        );
+    }
+    Ok(Some(matches.remove(0)))
+}
+
+fn parse_joined_mpls(b: &[u8], clips: &[String], fps: Fps) -> Result<Option<PlaylistChapters>> {
+    ensure!(b.get(..4) == Some(b"MPLS"), "Invalid MPLS signature");
+    let playlist = u32_at(b, 8)? as usize;
+    let marks_offset = u32_at(b, 12)? as usize;
+    let count = u16_at(b, playlist + 6)? as usize;
+    if count != clips.len() {
+        return Ok(None);
+    }
+    let mut pos = playlist + 10;
+    let mut items = Vec::with_capacity(count);
+    let mut elapsed = 0_i128;
+    for clip in clips {
+        let len = u16_at(b, pos)? as usize;
+        ensure!(len >= 20, "MPLS PlayItem is too short");
+        let start = pos + 2;
+        ensure!(start + len <= b.len(), "Truncated MPLS PlayItem");
+        if b.get(start..start + 5) != Some(clip.as_bytes())
+            || b.get(start + 5..start + 9) != Some(b"M2TS")
+        {
+            return Ok(None);
+        }
+        let input = u32_at(b, start + 12)?;
+        let output = u32_at(b, start + 16)?;
+        ensure!(output > input, "Invalid MPLS PlayItem interval");
+        items.push((input, output, elapsed));
+        elapsed += (output - input) as i128;
+        pos += len + 2;
+    }
+    let count = u16_at(b, marks_offset + 4)? as usize;
+    let mut ticks = Vec::new();
+    for i in 0..count {
+        let pos = marks_offset + 6 + i * 14;
+        if b.get(pos + 1) != Some(&1) {
+            continue;
+        }
+        let item = u16_at(b, pos + 2)? as usize;
+        let (input, output, prior) = *items.get(item).context("MPLS mark has invalid PlayItem")?;
+        let tick = u32_at(b, pos + 4)?;
+        if tick >= input && tick < output {
+            ticks.push(prior + (tick - input) as i128);
+        }
+    }
+    ticks.sort_unstable();
+    ticks.dedup();
+    if ticks.is_empty() {
+        return Ok(None);
+    }
+    let duration_frames = (elapsed * fps.num as i128 / (45000 * fps.den as i128)) as i64;
+    let terminal_window = 50.min((duration_frames / 4).max(1));
+    let times = ticks
+        .into_iter()
+        .filter(|tick| {
+            let frame = (*tick * fps.num as i128 / (45000 * fps.den as i128)) as i64;
+            frame <= duration_frames - terminal_window
+        })
+        .map(|tick| ((tick * 1000 + 22500) / 45000) as i64)
+        .collect::<Vec<_>>();
+    if times.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(PlaylistChapters {
+        times,
+        duration_ms: ((elapsed * 1000 + 22500) / 45000) as i64,
+        duration_frames,
+        in_ms: 0,
+    }))
+}
 pub fn name_times(times: Vec<i64>, names: &[String]) -> Result<Vec<(i64, String)>> {
     ensure!(
         names.is_empty() || names.len() == times.len(),

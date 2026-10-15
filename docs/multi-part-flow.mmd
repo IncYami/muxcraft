@@ -16,7 +16,7 @@ flowchart TD
     PG -- SUP file --> PD["Use the SUP file directly"]
     VAR --> OTHER["Additional VideoTrack sources keep their own paths"]
     W --> SUB["Rust: prepare ASS/SRT and collect fonts if enabled"]
-    W --> CH["Rust: use a chapter file or explicit frame chapters"]
+    W --> CH["Rust: match ordered BDMV clips to MPLS chapters, or use configured chapters"]
     W --> TAG["Rust: prepare optional track and TMDB tags"]
     V --> MX["mkvmerge: combine selected tracks, chapters, fonts and tags into a temporary MKV"]
     FL --> MX

@@ -1,0 +1,25 @@
+[project]
+show = 'Example Movie'
+out_dir = 'output'
+work_dir = 'work'
+output = '{show}.{ep}.mkv'
+
+[episodes]
+JP = ['disc/BDMV/STREAM/00002.m2ts', 'disc/BDMV/STREAM/00003.m2ts', 'disc/BDMV/STREAM/00005.m2ts']
+EN = ['disc/BDMV/STREAM/00001.m2ts', 'disc/BDMV/STREAM/00003.m2ts', 'disc/BDMV/STREAM/00004.m2ts']
+
+[VideoTrack.01]
+source = '{episodes}'
+
+[AudioTrack.01]
+source = '{episodes}'
+track = 0
+codec = 'copy'
+
+[pgs]
+PGS = '{episodes}'
+
+[mux]
+'VideoTrack.01' = { name = 'BD Video', language = 'ja-JP', default = true }
+'AudioTrack.01' = { name = 'BD Audio', language = 'ja-JP', default = true }
+PGS = { name = 'BD PGS', language = 'ja-JP' }

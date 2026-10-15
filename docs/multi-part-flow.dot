@@ -21,7 +21,7 @@ digraph MultiPartFlow {
   pgs_direct [label="Use supplied SUP directly", fillcolor="#f3eaff"];
   other [label="Additional VideoTrack sources\nkeep their own paths"];
   subtitle [label="Rust: prepare ASS/SRT; collect\nfonts when enabled", fillcolor="#fff2e2"];
-  chapter [label="Rust: chapter file or explicit\nframe chapters", fillcolor="#fff2e2"];
+  chapter [label="Rust: match ordered BDMV clips to MPLS\nchapters, or use configured chapters", fillcolor="#fff2e2"];
   tags [label="Rust: optional track and TMDB tags", fillcolor="#fff2e2"];
   mux [label="mkvmerge: combine tracks, chapters,\nfonts and tags into temporary MKV", fillcolor="#dceeff"];
   output [label="Publish MKV without overwriting", fillcolor="#ddf7e3", color="#72ad7d"];
