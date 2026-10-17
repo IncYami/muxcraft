@@ -336,6 +336,12 @@ impl Ass {
         Ok(())
     }
 }
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AssCleaning {
+    pub garbage: bool,
+    pub extradata: bool,
+}
+
 pub fn process_ass(
     input: &str,
     t: &Track,
@@ -343,6 +349,7 @@ pub fn process_ass(
     ep: &str,
     fps: Fps,
     cutoff: Option<SubtitleCutoff>,
+    cleaning: AssCleaning,
 ) -> Result<Ass> {
     let mut doc = Ass::parse(input)?;
     doc.set_headers(&t.headers)?;
@@ -492,10 +499,10 @@ pub fn process_ass(
         if line.starts_with('[') {
             section = line.clone();
         }
-        if t.clean.iter().any(|s| s == "garbage") && section == "[Aegisub Project Garbage]" {
+        if cleaning.garbage && section == "[Aegisub Project Garbage]" {
             return false;
         }
-        if t.clean.iter().any(|s| s == "extradata") && section == "[Aegisub Extradata]" {
+        if cleaning.extradata && section == "[Aegisub Extradata]" {
             return false;
         }
         true

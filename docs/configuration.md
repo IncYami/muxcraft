@@ -33,7 +33,7 @@ For an ordered list of `.m2ts` files in one `BDMV/STREAM` directory, Muxcraft se
 
 ## Track sources and mux metadata
 
-Every video and audio source has an ID formed from the table suffix, such as `VideoTrack.01` or `AudioTrack.02`. Every configured track must have one matching `[mux]` entry; quote dotted IDs there. Track IDs across video, audio, subtitles, and PGS must be unique. Track source paths must be nonempty. `only` and `except` episode lists are mutually interpreted as enable filters; references must name configured episode IDs.
+Every video and audio source has an ID formed from the table suffix, such as `VideoTrack.01` or `AudioTrack.02`. Every configured track must have one matching `[mux]` entry; quote dotted IDs there. Track IDs across video, audio, subtitles, and PGS must be unique. Track source paths must be nonempty. `only` and `except` remain available for video, audio, and PGS tracks; subtitle differences use episode overlays.
 
 | Track field | Type | Default | Applies to / behavior |
 | --- | --- | --- | --- |
@@ -42,15 +42,17 @@ Every video and audio source has an ID formed from the table suffix, such as `Vi
 | `audio`, `subtitles`, `attachments` | boolean | `false` | Video track only: include all source tracks or attachments of that kind. |
 | `global_tags`, `chapters` | boolean | `false` | Video track only: retain source global tags or embedded chapters. |
 | `colour` | table | absent | Video metadata fields `range`, `primaries`, `transfer`, `matrix` are optional numeric MKVToolNix codes; at least one must be set. `range` is 0–3. A given field cannot also be supplied in `args`. |
-| `codec` | string | required for audio | `flac` (encode) or `copy` (copy audio bitstream). |
+| `codec` | string | required for audio | `flac` (encode) or `copy` (read the selected track directly from its container). |
 | `args` | string array | `[]` | Per-track mkvmerge arguments, one item per argument. For PGS, applied to the muxed track. |
-| `only`, `except` | string array | `[]` | Enable only the listed episodes, or enable all except listed episodes. IDs must exist. |
+| `only`, `except` | string array | `[]` | Video, audio, and PGS only: enable only the listed episodes, or enable all except listed episodes. IDs must exist. |
 | `name`, `language` | string | required | `[mux]` fields: output track name and language/IETF language tag. |
 | `default`, `forced`, `hearing_impaired` | boolean | `false` | `[mux]` track flags. |
 | `delay_ms` | integer | `0` | `[mux]` track delay in milliseconds. |
 | `tags` | string map | `{}` | `[mux]` extra Matroska track tags. |
 
-Video sources use `[VideoTrack.N]`; audio uses `[AudioTrack.N]` and requires `codec`. Text subtitles use `[subtitles]` with each ID mapped to a source string or inline table. PGS uses `[pgs]`, each ID mapped to a container/`.sup` source or inline table. Subtitle and PGS IDs cannot contain dots. For inline text subtitles, fields are `source`, `track`, `only`, `except`, `overrides`, `headers`, `clean`, `ycbcr_matrix`, and `args`; `overrides` maps episode ID to `{ source = '...' }`. Inline PGS fields are `source`, `track`, `only`, `except`, `args`.
+Audio `copy` retains the selected source container timing without an intermediate extraction. FLAC extraction uses 16-, 24-, or 32-bit integer PCM according to the source depth. A floating-point decode without a reported integer depth is quantized to 24-bit PCM with a CLI warning. FLAC 1.4 or newer is required for 32-bit PCM. For uncut audio and video from the same file, the measured audio start offset is added to `delay_ms`. For separate files, `delay_ms` alone determines the adjustment. Cut audio keeps its sample-based timing and verification.
+
+Video sources use `[VideoTrack.N]`; audio uses `[AudioTrack.N]` and requires `codec`. Text subtitles use `[subtitles]` with each ID mapped to a source string or inline table. PGS uses `[pgs]`, each ID mapped to a container/`.sup` source or inline table. Subtitle and PGS IDs cannot contain dots. Inline text subtitle fields are `source`, `track`, `headers`, and `args`. Set cleaning and YCbCr Matrix once in `[subtitles.processing]`; use an episode overlay to change a subtitle source, disable a subtitle, or change processing for one episode. Inline PGS fields are `source`, `track`, `only`, `except`, and `args`.
 
 Each track has its metadata under `[mux]`:
 
@@ -63,17 +65,19 @@ Each track has its metadata under `[mux]`:
 
 `[subtitles.fonts]` defaults to enabled font collection with current-directory, subtitle-directory, and system font searches enabled; `dirs` is empty. All fields are optional: `enabled`, `dirs` (string array), `use_system_fonts`, `search_current_dir`, `search_subtitle_dirs`.
 
-`[subtitles.processing]` supports `clean_garbage` (false), `clean_extradata` (false), `ycbcr_matrix` (absent), and `truncate_video` (absent). Its `truncate_video` table has `trimmed` (true) and `comment` (false). When set, cues starting at or after the video end are removed; crossing cues are clamped when `trimmed = true`, otherwise any cue extending past the end is removed. With `comment = true`, removed ASS dialogue is kept as a timed Comment event; crossing dialogue can also remain as a clamped dialogue. SRT has no comment event. Truncation runs after shifts, deletions, and additions and uses selected video duration; it does not trim video.
+`[subtitles.processing]` supports `clean_garbage` (false), `clean_extradata` (false), `ycbcr_matrix` (absent), and `truncate_video` (absent). These settings apply to every eligible subtitle in the effective episode configuration. An episode overlay may replace individual settings for that episode. The `truncate_video` table has `trimmed` (true) and `comment` (false). When set, cues starting at or after the video end are removed; crossing cues are clamped when `trimmed = true`, otherwise any cue extending past the end is removed. With `comment = true`, removed ASS dialogue is kept as a timed Comment event; crossing dialogue can also remain as a clamped dialogue. SRT has no comment event. Truncation runs after shifts, deletions, and additions and uses selected video duration; it does not trim video.
 
 For each subtitle ID, `[subtitles.shift]` accepts an integer frame shift or a correction table. A batch correction table requires `default` and may specify episode IDs as keys; episode corrections replace the default. An episode overlay can provide `{ frames = N, ranges = [...] }` directly. Each range has required `start` (nonnegative frame), optional `end` (exclusive and greater than start), and `frames` (shift, default 0). Shifts use rational CFR frame timing. Overlapping range shifts add.
 
 `[subtitles.delete]` maps IDs to arrays of `{ episodes = [], start, end }`: start is required, nonnegative, `end` optional, and ranges are half-open; omitted episodes applies to all episodes. `[subtitles.add]` maps IDs to arrays of `{ episodes = [], lines }`, where lines is a nonempty string array of complete ASS Dialogue lines or SRT blocks. Edits run in order: shift, delete, add. Added lines use final timestamps.
 
-For inline subtitle tracks, `headers` is a string map, `clean` accepts `garbage` and/or `extradata`, and `ycbcr_matrix` accepts `auto`, `None`, `TV.601`, `PC.601`, `TV.709`, `PC.709`, `TV.240M`, `PC.240M`, `TV.FCC`, or `PC.FCC`. Shared processing defaults apply when omitted; per-track values configure that subtitle. `overrides` replaces its source for an episode. `only` and `except` remain supported for track filtering.
+For inline subtitle tracks, `headers` is a string map of ASS headers other than `YCbCr Matrix`. The shared `ycbcr_matrix` accepts `auto`, `None`, `TV.601`, `PC.601`, `TV.709`, `PC.709`, `TV.240M`, `PC.240M`, `TV.FCC`, or `PC.FCC`. Unknown processing fields and removed per-track options are configuration errors.
 
 ## Episode overlays
 
 An `[episodes]` value ending in `.toml` loads an overlay. That file must define exactly the same one episode ID and its actual non-TOML source; overlays cannot include other overlays. Its settings are merged over the batch settings for that episode. Tables merge recursively; subtitle shift entries merge by ID. A boolean `false` under `VideoTrack`, `AudioTrack`, `subtitles`, or `pgs` disables that inherited track and removes its mux settings for this episode. The main batch still defines any track that is enabled for other episodes. Paths in both files resolve relative to the main batch configuration directory.
+
+For example, an overlay can set `[subtitles] US = 'revised.ass'` and `[subtitles.processing] clean_garbage = false` for one episode while inheriting the remaining batch settings.
 
 ## TMDB
 

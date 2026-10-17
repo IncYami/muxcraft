@@ -44,12 +44,11 @@ fn ffmpeg_output(program: &str, args: &[String], label: &str) -> Result<std::pro
     let mut stderr_bytes = Vec::new();
     for line in BufReader::new(stderr).lines() {
         let line = line?;
-        if let Some((key, Some(value))) = crate::ui::ffmpeg_progress_line(&line) {
-            if (key == "frame" && frame_total.is_some())
-                || (key == "time" && frame_total.is_none() && time_total.is_some())
-            {
-                progress.update(value);
-            }
+        if let Some((key, Some(value))) = crate::ui::ffmpeg_progress_line(&line)
+            && ((key == "frame" && frame_total.is_some())
+                || (key == "time" && frame_total.is_none() && time_total.is_some()))
+        {
+            progress.update(value);
         }
         stderr_bytes.extend_from_slice(line.as_bytes());
         stderr_bytes.push(b'\n');
@@ -78,6 +77,12 @@ struct Identification {
     #[serde(default)]
     tracks: Vec<IdentTrack>,
     #[serde(default)]
+    chapters: Vec<serde_json::Value>,
+    #[serde(default)]
+    attachments: Vec<serde_json::Value>,
+    #[serde(default)]
+    container: serde_json::Value,
+    #[serde(default)]
     errors: Vec<String>,
 }
 #[derive(Debug, Deserialize)]
@@ -86,9 +91,32 @@ struct IdentTrack {
     codec: String,
     #[serde(rename = "type")]
     kind: String,
+    #[serde(default)]
+    properties: serde_json::Value,
 }
 struct CommandRunner<'a> {
     cfg: &'a Config,
+}
+struct ExpectedTrack {
+    index: usize,
+    kind: &'static str,
+    name: String,
+    language: String,
+    default: bool,
+    forced: bool,
+    hearing_impaired: bool,
+    check_metadata: bool,
+}
+struct PartialOutput {
+    path: PathBuf,
+    remove_on_drop: bool,
+}
+impl Drop for PartialOutput {
+    fn drop(&mut self) {
+        if self.remove_on_drop {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
 }
 #[derive(Debug, Clone)]
 struct AudioSampleRange {
@@ -118,10 +146,10 @@ struct VideoDuration {
     source: &'static str,
 }
 fn identify(program: &str, path: &Path) -> Result<Identification> {
-    crate::ui::command(program, &["-J".into(), path.to_string_lossy().into_owned()]);
+    let args = vec!["-J".into(), path.to_string_lossy().into_owned()];
+    crate::ui::command(program, &args);
     let out = Command::new(program)
-        .args(["-J"])
-        .arg(path)
+        .args(&args)
         .output()
         .with_context(|| format!("Running {program}"))?;
     crate::ui::diagnostic(&String::from_utf8_lossy(&out.stderr));
@@ -135,6 +163,81 @@ fn identify(program: &str, path: &Path) -> Result<Identification> {
         serde_json::from_slice(&out.stdout).context("Invalid mkvmerge identification")?;
     ensure!(ident.errors.is_empty(), "mkvmerge: {:?}", ident.errors);
     Ok(ident)
+}
+
+fn verify_mux(
+    program: &str,
+    path: &Path,
+    track_count: usize,
+    expected: &[ExpectedTrack],
+    expect_chapters: bool,
+    collected_fonts: usize,
+) -> Result<()> {
+    let result = identify(program, path)?;
+    ensure!(
+        result.tracks.len() == track_count,
+        "Output has {} tracks; expected {track_count}",
+        result.tracks.len()
+    );
+    ensure!(
+        result.container["properties"]["duration"]
+            .as_u64()
+            .is_some_and(|n| n > 0),
+        "Output has no positive duration"
+    );
+    for item in expected {
+        let track = &result.tracks[item.index];
+        ensure!(
+            track.kind == item.kind,
+            "Output track {} has unexpected type",
+            item.index
+        );
+        let properties = &track.properties;
+        if !item.check_metadata {
+            continue;
+        }
+        ensure!(
+            properties["track_name"].as_str().unwrap_or("") == item.name,
+            "Output track {} has unexpected name",
+            item.index
+        );
+        ensure!(
+            properties["language_ietf"].as_str().unwrap_or("und") == item.language,
+            "Output track {} has unexpected language",
+            item.index
+        );
+        for (key, requested) in [
+            ("default_track", item.default),
+            ("forced_track", item.forced),
+            ("flag_hearing_impaired", item.hearing_impaired),
+        ] {
+            ensure!(
+                properties[key].as_bool().unwrap_or(false) == requested,
+                "Output track {} has unexpected {key}",
+                item.index
+            );
+        }
+    }
+    if expect_chapters {
+        ensure!(
+            result
+                .chapters
+                .iter()
+                .any(|entry| entry["num_entries"].as_u64().is_some_and(|n| n > 0)),
+            "Expected chapters are missing from output"
+        );
+    }
+    ensure!(
+        result.attachments.len() >= collected_fonts,
+        "Output is missing collected font attachments"
+    );
+    crate::ui::detail(&format!(
+        "Output structure verified: {} tracks, {} chapter editions, {} attachments",
+        result.tracks.len(),
+        result.chapters.len(),
+        result.attachments.len()
+    ));
+    Ok(())
 }
 fn cached_identify<'a>(
     cache: &'a mut BTreeMap<(String, PathBuf), Identification>,
@@ -185,6 +288,39 @@ struct AudioStream {
     sample_fmt: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PcmFormat {
+    S16,
+    S24,
+    S32,
+}
+
+impl PcmFormat {
+    fn codec(self) -> &'static str {
+        match self {
+            Self::S16 => "pcm_s16le",
+            Self::S24 => "pcm_s24le",
+            Self::S32 => "pcm_s32le",
+        }
+    }
+
+    fn raw(self) -> &'static str {
+        match self {
+            Self::S16 => "s16le",
+            Self::S24 => "s24le",
+            Self::S32 => "s32le",
+        }
+    }
+
+    fn bytes(self) -> u64 {
+        match self {
+            Self::S16 => 2,
+            Self::S24 => 3,
+            Self::S32 => 4,
+        }
+    }
+}
+
 fn audio_stream(program: &str, path: &Path, track: usize) -> Result<AudioStream> {
     let args = vec![
         "-v".into(), "error".into(), "-select_streams".into(), format!("a:{track}"),
@@ -193,17 +329,7 @@ fn audio_stream(program: &str, path: &Path, track: usize) -> Result<AudioStream>
     ];
     crate::ui::command(program, &args);
     let out = Command::new(program)
-        .args([
-            "-v",
-            "error",
-            "-select_streams",
-            &format!("a:{track}"),
-            "-show_entries",
-            "stream=codec_name,sample_rate,channels,time_base,bits_per_raw_sample,bits_per_sample,sample_fmt",
-            "-of",
-            "json",
-        ])
-        .arg(path)
+        .args(&args)
         .output()
         .with_context(|| format!("Running {program}"))?;
     crate::ui::diagnostic(&String::from_utf8_lossy(&out.stderr));
@@ -251,22 +377,7 @@ fn source_audio_sample_range(
         source.to_string_lossy().into_owned(),
     ];
     crate::ui::command(&cfg.tools.ffprobe, &args);
-    let output = Command::new(&cfg.tools.ffprobe)
-        .args([
-            "-v",
-            "error",
-            "-select_streams",
-            &format!("a:{track}"),
-            "-read_intervals",
-            "%+#1",
-            "-show_frames",
-            "-show_entries",
-            "frame=pts",
-            "-of",
-            "json",
-        ])
-        .arg(source)
-        .output()?;
+    let output = Command::new(&cfg.tools.ffprobe).args(&args).output()?;
     crate::ui::diagnostic(&String::from_utf8_lossy(&output.stderr));
     ensure!(
         output.status.success(),
@@ -323,20 +434,35 @@ fn source_audio_sample_range(
     })
 }
 
-fn pcm_codec(stream: &AudioStream) -> &'static str {
+fn pcm_format(stream: &AudioStream) -> Result<PcmFormat> {
+    if matches!(
+        stream.sample_fmt.as_deref(),
+        Some("flt" | "fltp" | "dbl" | "dblp")
+    ) {
+        crate::ui::warning("Decoded floating-point audio is quantized to 24-bit PCM for FLAC");
+        return Ok(PcmFormat::S24);
+    }
     let bits = stream
         .bits_per_raw_sample
         .as_deref()
         .and_then(|s| s.parse::<u8>().ok())
-        .or(stream.bits_per_sample)
-        .or_else(|| {
-            stream
-                .sample_fmt
-                .as_deref()
-                .map(|s| if s.contains("s16") { 16 } else { 24 })
-        })
-        .unwrap_or(16);
-    if bits <= 16 { "pcm_s16le" } else { "pcm_s24le" }
+        .filter(|bits| *bits > 0)
+        .or(stream.bits_per_sample.filter(|bits| *bits > 0));
+    let bits = match bits {
+        Some(bits) => bits,
+        None => match stream.sample_fmt.as_deref() {
+            Some("u8" | "u8p" | "s16" | "s16p") => 16,
+            Some("s32" | "s32p") => 32,
+            Some(other) => bail!("Unsupported decoded audio sample format: {other}"),
+            None => bail!("Audio sample depth and decoded sample format are unknown"),
+        },
+    };
+    match bits {
+        1..=16 => Ok(PcmFormat::S16),
+        17..=24 => Ok(PcmFormat::S24),
+        25..=32 => Ok(PcmFormat::S32),
+        _ => bail!("Audio sample depth {bits} exceeds supported 32-bit PCM"),
+    }
 }
 
 fn flac_version(program: &str) -> Option<String> {
@@ -362,6 +488,7 @@ fn flac_threads(version: &str) -> Option<usize> {
 struct PreparedAudio {
     path: PathBuf,
     tags: BTreeMap<String, String>,
+    format: PcmFormat,
     source_pcm: Option<PathBuf>,
     source_pcm_hash: Option<(String, u64)>,
     source_sample_range: Option<AudioSampleRange>,
@@ -387,25 +514,6 @@ fn cut_video(
     let output = work
         .join(source.file_name().context("Source has no filename")?)
         .with_extension("mkv");
-    let tee_output_path = if output.is_absolute() {
-        output.clone()
-    } else {
-        std::env::current_dir()?.join(&output)
-    };
-    let tee_path = tee_output_path
-        .to_string_lossy()
-        .chars()
-        .flat_map(|c| {
-            if "\\|[]".contains(c) {
-                vec!['\\', c]
-            } else {
-                vec![c]
-            }
-        })
-        .collect::<String>();
-    let tee_output = format!(
-        "[f=matroska]{tee_path}|[f=hash:hash=SHA256:bsfs/v=h264_mp4toannexb\\,filter_units=pass_types=1-5]pipe:1"
-    );
     let args = vec![
         "-nostdin".into(),
         "-hide_banner".into(),
@@ -430,12 +538,24 @@ fn cut_video(
         "-1".into(),
         "-c:v".into(),
         "copy".into(),
-        // The tee muxer preserves the MPEG-TS codec tag, which Matroska rejects.
         "-tag:v".into(),
         "avc1".into(),
         "-f".into(),
-        "tee".into(),
-        tee_output,
+        "matroska".into(),
+        output.to_string_lossy().into(),
+        "-map".into(),
+        format!("0:v:{track}"),
+        "-frames:v".into(),
+        cut.video_frames.to_string(),
+        "-c:v".into(),
+        "copy".into(),
+        "-bsf:v".into(),
+        "h264_mp4toannexb,filter_units=pass_types=1-5".into(),
+        "-f".into(),
+        "hash".into(),
+        "-hash".into(),
+        "SHA256".into(),
+        "-".into(),
     ];
     crate::ui::command(&cfg.tools.ffmpeg, &args);
     let result = ffmpeg_output(&cfg.tools.ffmpeg, &args, "Cut video")?;
@@ -449,7 +569,7 @@ fn cut_video(
     let hash = line
         .trim()
         .strip_prefix("SHA256=")
-        .context("FFmpeg tee muxer did not return source SHA256")?;
+        .context("FFmpeg did not return source SHA256")?;
     ensure!(hash.len() == 64, "Invalid source video SHA256");
     let packets = String::from_utf8_lossy(&result.stderr)
         .lines()
@@ -512,7 +632,12 @@ fn video_sha256(cfg: &Config, source: &Path, track: usize) -> Result<(String, u6
     Ok((hash.into(), packets))
 }
 
-fn pcm_sha256(cfg: &Config, source: &Path, track: usize, codec: &str) -> Result<(String, u64)> {
+fn pcm_sha256(
+    cfg: &Config,
+    source: &Path,
+    track: usize,
+    format: PcmFormat,
+) -> Result<(String, u64)> {
     let mut args = vec![
         "-nostdin".into(),
         "-hide_banner".into(),
@@ -520,18 +645,13 @@ fn pcm_sha256(cfg: &Config, source: &Path, track: usize, codec: &str) -> Result<
         "error".into(),
     ];
     args.extend(["-i".into(), source.to_string_lossy().into()]);
-    let format = if codec == "pcm_s16le" {
-        "s16le"
-    } else {
-        "s24le"
-    };
     args.extend([
         "-map".into(),
         format!("0:a:{track}"),
         "-c:a".into(),
-        codec.into(),
+        format.codec().into(),
         "-f".into(),
-        format.into(),
+        format.raw().into(),
         "-".into(),
     ]);
     args.splice(
@@ -600,22 +720,7 @@ fn first_packet_ms(program: &str, source: &Path, kind: &str, track: usize) -> Re
         source.to_string_lossy().into_owned(),
     ];
     crate::ui::command(program, &args);
-    let result = Command::new(program)
-        .args([
-            "-v",
-            "error",
-            "-select_streams",
-            &format!("{kind}:{track}"),
-            "-read_intervals",
-            "%+#1",
-            "-show_packets",
-            "-show_entries",
-            "packet=pts_time",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-        ])
-        .arg(source)
-        .output()?;
+    let result = Command::new(program).args(&args).output()?;
     crate::ui::diagnostic(&String::from_utf8_lossy(&result.stderr));
     ensure!(
         result.status.success(),
@@ -630,8 +735,35 @@ fn first_packet_ms(program: &str, source: &Path, kind: &str, track: usize) -> Re
     Ok(first * 1000.0)
 }
 
+fn stream_start_ms(program: &str, source: &Path, kind: &str, track: usize) -> Result<Option<f64>> {
+    let args = vec![
+        "-v".into(),
+        "error".into(),
+        "-select_streams".into(),
+        format!("{kind}:{track}"),
+        "-show_entries".into(),
+        "stream=start_time".into(),
+        "-of".into(),
+        "json".into(),
+        source.to_string_lossy().into_owned(),
+    ];
+    crate::ui::command(program, &args);
+    let output = Command::new(program).args(&args).output()?;
+    ensure!(
+        output.status.success(),
+        "ffprobe failed for {}: {}",
+        source.display(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    Ok(value["streams"][0]["start_time"]
+        .as_str()
+        .and_then(|time| time.parse::<f64>().ok())
+        .filter(|time| time.is_finite())
+        .map(|time| time * 1000.0))
+}
+
 fn extract_audio(
-    cfg: &Config,
     runner: &CommandRunner<'_>,
     track: &Track,
     source: &Path,
@@ -640,6 +772,19 @@ fn extract_audio(
     cut: Option<&ResolvedCut>,
     source_range: Option<&AudioSampleRange>,
 ) -> Result<PreparedAudio> {
+    let cfg = runner.cfg;
+    let pcm = pcm_format(stream)?;
+    let version = flac_version(&cfg.tools.flac);
+    if pcm == PcmFormat::S32 {
+        ensure!(
+            version
+                .as_deref()
+                .and_then(|text| text.split('.').nth(1))
+                .and_then(|minor| minor.parse::<u32>().ok())
+                .is_some_and(|minor| minor >= 4),
+            "32-bit PCM requires FLAC 1.4 or newer"
+        );
+    }
     let extension = if cut.is_some() {
         "wav"
     } else {
@@ -659,15 +804,7 @@ fn extract_audio(
     };
     let extracted = work.join(format!("{}.extracted.{extension}", track.id));
     let mut source_sample_range = source_range.cloned();
-    let source_pcm_hash = if let (Some(cut), Some(range)) = (cut, source_range)
-        && track.codec == "flac"
-    {
-        let codec = pcm_codec(stream);
-        let format = if codec == "pcm_s16le" {
-            "s16le"
-        } else {
-            "s24le"
-        };
+    let source_pcm_hash = if let (Some(cut), Some(range)) = (cut, source_range) {
         let filter = format!(
             "[0:a:{}]asplit=2[cut_in][source_in];[cut_in]atrim=start={:.9}:end={:.9},asetpts=PTS-STARTPTS[cut_out];[source_in]atrim=start_sample={}:end_sample={}[source_out]",
             track.track,
@@ -691,7 +828,7 @@ fn extract_audio(
             "-map".into(),
             "[cut_out]".into(),
             "-c:a".into(),
-            codec.into(),
+            pcm.codec().into(),
             "-rf64".into(),
             "always".into(),
             "-bitexact".into(),
@@ -699,9 +836,9 @@ fn extract_audio(
             "-map".into(),
             "[source_out]".into(),
             "-c:a".into(),
-            codec.into(),
+            pcm.codec().into(),
             "-f".into(),
-            format.into(),
+            pcm.raw().into(),
             "-".into(),
         ];
         let mut args = args;
@@ -749,12 +886,11 @@ fn extract_audio(
             "Cut audio extraction and source PCM hash failed: {}",
             String::from_utf8_lossy(&stderr)
         );
-        let bytes_per_sample = if codec == "pcm_s16le" { 2_u64 } else { 3_u64 };
         let bytes_per_frame = u64::from(stream.channels)
-            .checked_mul(bytes_per_sample)
+            .checked_mul(pcm.bytes())
             .context("PCM sample-frame byte count overflowed")?;
         ensure!(
-            bytes % bytes_per_frame == 0,
+            bytes.is_multiple_of(bytes_per_frame),
             "Sample-count PCM branch returned a partial interleaved sample frame"
         );
         let actual_samples = bytes / bytes_per_frame;
@@ -817,7 +953,7 @@ fn extract_audio(
         if extension == "wav" {
             args.extend([
                 "-c:a".into(),
-                pcm_codec(stream).into(),
+                pcm.codec().into(),
                 "-rf64".into(),
                 "always".into(),
                 "-bitexact".into(),
@@ -832,20 +968,10 @@ fn extract_audio(
         runner.command(&cfg.tools.ffmpeg, args, false)?;
         None
     };
-    if track.codec == "copy" {
-        return Ok(PreparedAudio {
-            path: extracted,
-            tags: BTreeMap::new(),
-            source_pcm: None,
-            source_pcm_hash: None,
-            source_sample_range: None,
-        });
-    }
-
     let input = if extension == "flac" || extension == "wav" {
         extracted.clone()
     } else {
-        let pcm = work.join(format!("{}.prepared.w64", track.id));
+        let prepared_pcm = work.join(format!("{}.prepared.w64", track.id));
         let args = vec![
             "-nostdin".into(),
             "-hide_banner".into(),
@@ -855,11 +981,11 @@ fn extract_audio(
             "-map".into(),
             "0:a:0".into(),
             "-c:a".into(),
-            pcm_codec(stream).into(),
-            pcm.to_string_lossy().into(),
+            pcm.codec().into(),
+            prepared_pcm.to_string_lossy().into(),
         ];
         runner.command(&cfg.tools.ffmpeg, args, false)?;
-        pcm
+        prepared_pcm
     };
     let output = work.join(format!("{}.flac", track.id));
     let mut args = vec![
@@ -868,7 +994,6 @@ fn extract_audio(
         output.to_string_lossy().into(),
         "--verify".into(),
     ];
-    let version = flac_version(&cfg.tools.flac);
     let mut settings = vec!["-8".to_owned(), "--verify".to_owned()];
     if let Some(threads) = version.as_deref().and_then(flac_threads) {
         args.push(format!("--threads={threads}"));
@@ -878,6 +1003,7 @@ fn extract_audio(
     runner.command(&cfg.tools.flac, args, false)?;
     Ok(PreparedAudio {
         path: output,
+        format: pcm,
         source_pcm: cut.map(|_| extracted),
         source_pcm_hash,
         source_sample_range,
@@ -890,7 +1016,7 @@ fn extract_audio(
         ]),
     })
 }
-fn config_track(cfg: &Config, id: &str, ep: &str) -> Track {
+fn config_track(cfg: &Config, id: &str) -> Track {
     cfg.video
         .iter()
         .chain(&cfg.audio)
@@ -898,7 +1024,7 @@ fn config_track(cfg: &Config, id: &str, ep: &str) -> Track {
         .chain(&cfg.pgs)
         .find(|t| t.id == id)
         .unwrap()
-        .effective(ep)
+        .clone()
 }
 fn is_pgs(cfg: &Config, id: &str) -> bool {
     cfg.pgs.iter().any(|track| track.id == id)
@@ -941,19 +1067,7 @@ fn video_matrix(cfg: &Config, video: &TrackPlan) -> Result<String> {
         video.source.to_string_lossy().into_owned(),
     ];
     crate::ui::command(&cfg.tools.ffprobe, &args);
-    let out = Command::new(&cfg.tools.ffprobe)
-        .args([
-            "-v",
-            "error",
-            "-select_streams",
-            &format!("v:{}", video.track),
-            "-show_entries",
-            "stream=color_space,color_range",
-            "-of",
-            "json",
-        ])
-        .arg(&video.source)
-        .output()?;
+    let out = Command::new(&cfg.tools.ffprobe).args(&args).output()?;
     crate::ui::diagnostic(&String::from_utf8_lossy(&out.stderr));
     ensure!(
         out.status.success(),
@@ -1002,8 +1116,8 @@ fn load_sub(
     let fps = Fps::parse(&cfg.project.fps)?;
     if is_srt {
         ensure!(
-            t.headers.is_empty() && t.clean.is_empty() && t.ycbcr_matrix.is_none(),
-            "Subtitle {}: ASS headers and cleaning are not valid for SRT",
+            t.headers.is_empty(),
+            "Subtitle {}: ASS headers are not valid for SRT",
             t.id
         );
         return Ok((
@@ -1013,18 +1127,7 @@ fn load_sub(
     }
     if is_ass {
         let mut effective = t.clone();
-        for (enabled, operation) in [
-            (cfg.subtitle_processing.clean_garbage, "garbage"),
-            (cfg.subtitle_processing.clean_extradata, "extradata"),
-        ] {
-            if enabled && !effective.clean.iter().any(|op| op == operation) {
-                effective.clean.push(operation.into());
-            }
-        }
-        if effective.ycbcr_matrix.is_none() {
-            effective.ycbcr_matrix = cfg.subtitle_processing.ycbcr_matrix.clone();
-        }
-        if let Some(matrix) = &effective.ycbcr_matrix {
+        if let Some(matrix) = &cfg.subtitle_processing.ycbcr_matrix {
             ensure!(
                 [
                     "auto", "None", "TV.601", "PC.601", "TV.709", "PC.709", "TV.240M", "PC.240M",
@@ -1046,7 +1149,18 @@ fn load_sub(
             };
             effective.headers.insert("YCbCr Matrix".into(), value);
         }
-        let ass = subtitle::process_ass(&input, &effective, correction, ep, fps, cutoff)?;
+        let ass = subtitle::process_ass(
+            &input,
+            &effective,
+            correction,
+            ep,
+            fps,
+            cutoff,
+            subtitle::AssCleaning {
+                garbage: cfg.subtitle_processing.clean_garbage,
+                extradata: cfg.subtitle_processing.clean_extradata,
+            },
+        )?;
         return Ok((ass.dump(), Some(ass)));
     }
     unreachable!("validated subtitle extension")
@@ -1146,20 +1260,7 @@ fn probe_video_duration(
         path.to_string_lossy().into_owned(),
     ];
     crate::ui::command(program, &args);
-    let output = Command::new(program)
-        .args([
-            "-v",
-            "error",
-            "-select_streams",
-            &format!("v:{track}"),
-            "-show_entries",
-            "stream=duration:format=duration",
-            "-of",
-            "json",
-        ])
-        .arg(path)
-        .output()
-        .ok()?;
+    let output = Command::new(program).args(&args).output().ok()?;
     output
         .status
         .success()
@@ -1395,19 +1496,7 @@ fn validate_fps(cfg: &Config, path: &Path, relative: usize) -> Result<()> {
         path.to_string_lossy().into_owned(),
     ];
     crate::ui::command(&cfg.tools.ffprobe, &args);
-    let out = Command::new(&cfg.tools.ffprobe)
-        .args([
-            "-v",
-            "error",
-            "-select_streams",
-            &format!("v:{relative}"),
-            "-show_entries",
-            "stream=avg_frame_rate,r_frame_rate",
-            "-of",
-            "json",
-        ])
-        .arg(path)
-        .output()?;
+    let out = Command::new(&cfg.tools.ffprobe).args(&args).output()?;
     crate::ui::diagnostic(&String::from_utf8_lossy(&out.stderr));
     ensure!(
         out.status.success(),
@@ -1507,7 +1596,7 @@ fn check_cached(
             None
         };
         for tp in &plan.tracks {
-            let t = config_track(cfg, &tp.id, &plan.episode);
+            let t = config_track(cfg, &tp.id);
             let check_source = if tp.source == plan.source && plan.sources.len() > 1 {
                 &plan.sources[0]
             } else {
@@ -1706,7 +1795,7 @@ fn run_episode(
     base: &Path,
     ep: &Episode,
     plan: &EpisodePlan,
-    client: &mut Option<tmdb::Client>,
+    tmdb_tags: Option<&str>,
     cache: &mut FontCache,
 ) -> Result<()> {
     std::fs::create_dir_all(plan.work.parent().unwrap())?;
@@ -1806,7 +1895,9 @@ fn run_episode(
             "--title".into(),
             plan.title.clone(),
         ];
+        let mut has_chapters = false;
         if let Some(chapter) = chapter_data(cfg, base, ep, plan, cut.as_ref())? {
+            has_chapters = true;
             let path = if let Some(content) = chapter.content {
                 let path = plan.work.join("chapters.txt");
                 std::fs::write(&path, content)?;
@@ -1832,10 +1923,10 @@ fn run_episode(
                 }
             }
         }
-        if let (Some(t), Some(client)) = (&cfg.tmdb, client) {
+        if let Some(tags) = tmdb_tags {
             let tags_step = crate::ui::Step::new("Prepare TMDB tags");
             let path = plan.work.join("global-tags.xml");
-            std::fs::write(&path, client.tags(t, ep)?)?;
+            std::fs::write(&path, tags)?;
             args.extend(["--global-tags".into(), path.to_string_lossy().into()]);
             crate::ui::detail(&format!("TMDB tags: {}", path.display()));
             tags_step.done();
@@ -1846,6 +1937,7 @@ fn run_episode(
         let index = font_index(cfg, base, plan, cache)?;
         let mut used = BTreeSet::new();
         let mut order = Vec::new();
+        let mut expected_tracks = Vec::new();
         for (file_index, tp) in plan.tracks.iter().enumerate() {
             let track_step = crate::ui::Step::new(format!("Prepare {} ({})", tp.id, tp.category));
             crate::ui::detail(&format!(
@@ -1855,72 +1947,113 @@ fn run_episode(
                 tp.name,
                 tp.language
             ));
-            let mut t = config_track(cfg, &tp.id, &ep.id);
+            let mut t = config_track(cfg, &tp.id);
             let (path, id) = if tp.category == "audio" {
-                let selected_cut = cut.as_ref().filter(|_| tp.source == plan.source);
-                let stream = audio_stream(&cfg.tools.ffprobe, &tp.source, tp.track)?;
-                let range = if let Some(selected_cut) = selected_cut
-                    && t.codec == "flac"
-                {
-                    Some(source_audio_sample_range(
-                        cfg,
+                if t.codec == "copy" {
+                    let ident = identify(&cfg.tools.mkvmerge, &tp.source)?;
+                    let id = track_id(&ident, "audio", tp.track)?;
+                    crate::ui::detail(&format!(
+                        "Copy audio directly from source: {} (track {})",
+                        tp.source.display(),
+                        id
+                    ));
+                    (tp.source.clone(), id)
+                } else {
+                    let selected_cut = cut.as_ref().filter(|_| tp.source == plan.source);
+                    let stream = audio_stream(&cfg.tools.ffprobe, &tp.source, tp.track)?;
+                    if selected_cut.is_none() && tp.source == plan.tracks[0].source {
+                        let audio_start =
+                            stream_start_ms(&cfg.tools.ffprobe, &tp.source, "a", tp.track)?;
+                        let video_start = stream_start_ms(
+                            &cfg.tools.ffprobe,
+                            &tp.source,
+                            "v",
+                            plan.tracks[0].track,
+                        )?;
+                        if let (Some(audio_start), Some(video_start)) = (audio_start, video_start) {
+                            let offset = (audio_start - video_start).round();
+                            ensure!(
+                                offset >= i64::MIN as f64 && offset <= i64::MAX as f64,
+                                "Audio start offset is outside the supported range"
+                            );
+                            t.delay_ms = t
+                                .delay_ms
+                                .checked_add(offset as i64)
+                                .context("Audio delay overflowed")?;
+                            crate::ui::detail(&format!(
+                                "{} source audio offset: {:+.3} ms; applied sync: {:+} ms",
+                                tp.id,
+                                audio_start - video_start,
+                                t.delay_ms
+                            ));
+                        } else {
+                            crate::ui::warning(&format!(
+                                "{} has no usable source start timestamps; only configured delay_ms is applied",
+                                tp.id
+                            ));
+                        }
+                    }
+                    let range = if let Some(selected_cut) = selected_cut
+                        && t.codec == "flac"
+                    {
+                        Some(source_audio_sample_range(
+                            cfg,
+                            &tp.source,
+                            tp.track,
+                            &stream,
+                            selected_cut,
+                        )?)
+                    } else {
+                        None
+                    };
+                    let prepared = extract_audio(
+                        &runner,
+                        &t,
                         &tp.source,
-                        tp.track,
+                        &plan.work,
                         &stream,
                         selected_cut,
-                    )?)
-                } else {
-                    None
-                };
-                let prepared = extract_audio(
-                    cfg,
-                    &runner,
-                    &t,
-                    &tp.source,
-                    &plan.work,
-                    &stream,
-                    selected_cut,
-                    range.as_ref(),
-                )?;
-                if let Some(pcm) = &prepared.source_pcm {
-                    let verify_audio =
-                        crate::ui::Step::new(format!("Verify cut audio PCM: {}", tp.id));
-                    let codec = pcm_codec(&stream);
-                    let original = prepared
-                        .source_pcm_hash
-                        .clone()
-                        .context("Missing source PCM hash from cut extraction")?;
-                    let extracted = pcm_sha256(cfg, pcm, 0, codec)?;
-                    crate::ui::detail(&format!(
-                        "{} cut PCM SHA-256: {} ({} bytes)",
-                        tp.id, extracted.0, extracted.1
-                    ));
-                    let matches_source = original == extracted;
-                    if let Some(range) = &prepared.source_sample_range {
+                        range.as_ref(),
+                    )?;
+                    if let Some(pcm) = &prepared.source_pcm {
+                        let verify_audio =
+                            crate::ui::Step::new(format!("Verify cut audio PCM: {}", tp.id));
+                        let original = prepared
+                            .source_pcm_hash
+                            .clone()
+                            .context("Missing source PCM hash from cut extraction")?;
+                        let extracted = pcm_sha256(cfg, pcm, 0, prepared.format)?;
                         crate::ui::detail(&format!(
-                            "{} samples: {}..{} requested, decoded through {} at {} Hz (first source PTS {:.6} s)",
-                            tp.id,
-                            range.start_sample,
-                            range.end_sample,
-                            range.decoded_end_sample,
-                            range.sample_rate,
-                            range.first_source_sample_pts_seconds
+                            "{} cut PCM SHA-256: {} ({} bytes)",
+                            tp.id, extracted.0, extracted.1
                         ));
+                        let matches_source = original == extracted;
+                        if let Some(range) = &prepared.source_sample_range {
+                            crate::ui::detail(&format!(
+                                "{} samples: {}..{} requested, decoded through {} at {} Hz (first source PTS {:.6} s)",
+                                tp.id,
+                                range.start_sample,
+                                range.end_sample,
+                                range.decoded_end_sample,
+                                range.sample_rate,
+                                range.first_source_sample_pts_seconds
+                            ));
+                        }
+                        ensure!(
+                            matches_source,
+                            "Cut audio {} differs from corresponding source PCM samples (source {} bytes, cut {} bytes)",
+                            tp.id,
+                            original.1,
+                            extracted.1
+                        );
+                        verify_audio.done();
                     }
-                    ensure!(
-                        matches_source,
-                        "Cut audio {} differs from corresponding source PCM samples (source {} bytes, cut {} bytes)",
-                        tp.id,
-                        original.1,
-                        extracted.1
-                    );
-                    verify_audio.done();
+                    for (key, value) in prepared.tags {
+                        t.tags.entry(key).or_insert(value);
+                    }
+                    let id = track_id(&identify(&cfg.tools.mkvmerge, &prepared.path)?, "audio", 0)?;
+                    (prepared.path, id)
                 }
-                for (key, value) in prepared.tags {
-                    t.tags.entry(key).or_insert(value);
-                }
-                let id = track_id(&identify(&cfg.tools.mkvmerge, &prepared.path)?, "audio", 0)?;
-                (prepared.path, id)
             } else if is_pgs(cfg, &tp.id) {
                 let ident = identify(&cfg.tools.mkvmerge, &tp.source)?;
                 let (id, subtitle_index) = pgs_track(&ident, t.track)?;
@@ -2007,6 +2140,31 @@ fn run_episode(
                 )?;
                 (path, id)
             };
+            expected_tracks.push(ExpectedTrack {
+                index: order.len(),
+                kind: if tp.category == "subtitle" {
+                    "subtitles"
+                } else if tp.category == "video" {
+                    "video"
+                } else {
+                    "audio"
+                },
+                name: tp.name.clone(),
+                language: t.language.clone(),
+                default: t.default,
+                forced: t.forced,
+                hearing_impaired: t.hearing_impaired,
+                check_metadata: !t.args.iter().any(|arg| {
+                    [
+                        "--track-name",
+                        "--language",
+                        "--default-track-flag",
+                        "--forced-display-flag",
+                        "--hearing-impaired-flag",
+                    ]
+                    .contains(&arg.as_str())
+                }),
+            });
             order.push(format!("{file_index}:{id}"));
             if tp.category == "video" && (t.audio || t.subtitles) {
                 let ident = identify(&cfg.tools.mkvmerge, &path)?;
@@ -2025,9 +2183,11 @@ fn run_episode(
             add_input(&mut args, tp, &t, &path, id, &plan.vars, &plan.work)?;
             track_step.done();
         }
+        let mut collected_fonts = 0;
         if cfg.fonts.enabled {
             let fonts_step = crate::ui::Step::new("Collect fonts");
             let fonts = index.collect(&used, &plan.work.join("fonts"))?;
+            collected_fonts = fonts.len();
             crate::ui::detail(&format!("Collected {} font files", fonts.len()));
             for font in &fonts {
                 crate::ui::detail(&format!(
@@ -2055,10 +2215,26 @@ fn run_episode(
         }
         args.extend(["--track-order".into(), order.join(",")]);
         let mux_step = crate::ui::Step::new("Mux output");
+        let mut temporary = PartialOutput {
+            path: partial.clone(),
+            remove_on_drop: true,
+        };
         runner.command(&cfg.tools.mkvmerge, args, true)?;
         ensure!(partial.is_file(), "mkvmerge did not produce an output file");
         mux_step.done();
+        let verify_step = crate::ui::Step::new("Verify output structure");
+        verify_mux(
+            &cfg.tools.mkvmerge,
+            &partial,
+            order.len(),
+            &expected_tracks,
+            has_chapters,
+            collected_fonts,
+        )?;
+        verify_step.done();
         let publish_step = crate::ui::Step::new("Publish output");
+        std::fs::File::open(&partial)?.sync_all()?;
+        temporary.remove_on_drop = false;
         std::fs::hard_link(&partial, &plan.output).with_context(|| {
             format!(
                 "Publishing {} without overwriting; temporary file kept at {}",
@@ -2075,11 +2251,88 @@ fn run_episode(
         publish_step.done();
         Ok(())
     })();
-    if result.is_ok() && cfg.project.clean_work_dirs {
-        std::fs::remove_dir_all(&plan.work)?;
+    if result.is_ok()
+        && cfg.project.clean_work_dirs
+        && let Err(error) = std::fs::remove_dir_all(&plan.work)
+    {
+        crate::ui::warning(&format!(
+            "Published MKV, but could not remove workdir {}: {error}",
+            plan.work.display()
+        ));
     }
     result
 }
+
+fn preflight_tools(cfg: &Config, plans: &[EpisodePlan]) -> Result<()> {
+    let mut programs = BTreeSet::new();
+    let mut cut_ffmpeg = BTreeSet::new();
+    for plan in plans {
+        let episode_cfg = cfg.for_episode(&plan.episode);
+        programs.insert((episode_cfg.tools.mkvmerge.clone(), "--version"));
+        programs.insert((episode_cfg.tools.ffprobe.clone(), "-version"));
+        let needs_flac = plan.tracks.iter().any(|track| {
+            track.category == "audio" && config_track(episode_cfg, &track.id).codec == "flac"
+        });
+        let needs_ffmpeg = plan.cut.is_some()
+            || needs_flac
+            || plan.tracks.iter().any(|track| {
+                is_pgs(episode_cfg, &track.id)
+                    && !track
+                        .source
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("sup"))
+            });
+        if needs_ffmpeg {
+            programs.insert((episode_cfg.tools.ffmpeg.clone(), "-version"));
+        }
+        if needs_flac {
+            programs.insert((episode_cfg.tools.flac.clone(), "--version"));
+        }
+        if plan.cut.is_some() {
+            cut_ffmpeg.insert(episode_cfg.tools.ffmpeg.clone());
+        }
+    }
+    for (program, version_arg) in programs {
+        let args = vec![version_arg.to_owned()];
+        crate::ui::command(&program, &args);
+        let result = Command::new(&program)
+            .args(&args)
+            .output()
+            .with_context(|| format!("Required tool is unavailable: {program}"))?;
+        ensure!(
+            result.status.success(),
+            "Required tool failed its version check: {program}"
+        );
+    }
+    for program in cut_ffmpeg {
+        let args = vec!["-hide_banner".to_owned(), "-bsfs".to_owned()];
+        crate::ui::command(&program, &args);
+        let bsfs = Command::new(&program).args(&args).output()?;
+        ensure!(
+            bsfs.status.success(),
+            "Cannot list FFmpeg bitstream filters"
+        );
+        let available = String::from_utf8_lossy(&bsfs.stdout);
+        for needed in ["h264_mp4toannexb", "filter_units"] {
+            ensure!(
+                available.lines().any(|line| line.trim() == needed),
+                "FFmpeg is missing required bitstream filter {needed}"
+            );
+        }
+        let args = vec!["-hide_banner".to_owned(), "-muxers".to_owned()];
+        crate::ui::command(&program, &args);
+        let muxers = Command::new(&program).args(&args).output()?;
+        ensure!(muxers.status.success(), "Cannot list FFmpeg muxers");
+        ensure!(
+            String::from_utf8_lossy(&muxers.stdout)
+                .lines()
+                .any(|line| line.split_whitespace().nth(1) == Some("hash")),
+            "FFmpeg is missing the hash muxer"
+        );
+    }
+    Ok(())
+}
+
 pub fn run(cfg: &Config, base: &Path, plans: &[EpisodePlan]) -> Result<()> {
     let batch_started = std::time::Instant::now();
     crate::ui::batch("Run", plans.len());
@@ -2106,6 +2359,7 @@ pub fn run(cfg: &Config, base: &Path, plans: &[EpisodePlan]) -> Result<()> {
             "Source clip conflicts with output or workdir"
         );
     }
+    preflight_tools(cfg, plans)?;
     let mut cache = FontCache::new();
     let mut identifiers = BTreeMap::new();
     if cfg.episode_configs.is_empty() {
@@ -2132,12 +2386,20 @@ pub fn run(cfg: &Config, base: &Path, plans: &[EpisodePlan]) -> Result<()> {
             .or_else(|| cfg.episodes.iter().find(|e| e.id == plan.episode))
             .unwrap();
         crate::ui::episode(&ep.id, index + 1, plans.len(), &plan.title);
-        let mut client = episode_cfg
-            .tmdb
-            .as_ref()
-            .map(tmdb::Client::new)
-            .transpose()?;
-        if let Err(e) = run_episode(episode_cfg, base, ep, plan, &mut client, &mut cache) {
+        let outcome = (|| -> Result<()> {
+            let tags = if let Some(config) = &episode_cfg.tmdb {
+                let mut client = tmdb::Client::new(config)?;
+                Some(
+                    client
+                        .tags(config, ep)
+                        .with_context(|| format!("Preparing TMDB tags for episode {}", ep.id))?,
+                )
+            } else {
+                None
+            };
+            run_episode(episode_cfg, base, ep, plan, tags.as_deref(), &mut cache)
+        })();
+        if let Err(e) = outcome {
             errors.push(ep.id.clone());
             if !episode_cfg.project.continue_on_error {
                 return Err(e).with_context(|| format!("Episode {} failed", ep.id));
@@ -2158,7 +2420,9 @@ pub fn run(cfg: &Config, base: &Path, plans: &[EpisodePlan]) -> Result<()> {
 
 #[cfg(test)]
 mod pipeline_tests {
-    use super::{matrix_from_metadata, video_duration_from_probe};
+    use super::{
+        AudioStream, PcmFormat, matrix_from_metadata, pcm_format, video_duration_from_probe,
+    };
     use crate::subtitle::Fps;
 
     #[test]
@@ -2167,6 +2431,30 @@ mod pipeline_tests {
         assert_eq!(matrix_from_metadata("bt709", "pc"), "PC.709");
         assert_eq!(matrix_from_metadata("bt470bg", "tv"), "TV.601");
         assert_eq!(matrix_from_metadata("bt2020nc", "tv"), "None");
+    }
+
+    #[test]
+    fn pcm_format_preserves_integer_depth_and_ignores_zero_bits() {
+        let mut stream = AudioStream {
+            codec_name: "pcm_s32le".into(),
+            sample_rate: "48000".into(),
+            channels: 2,
+            time_base: "1/48000".into(),
+            bits_per_raw_sample: Some("32".into()),
+            bits_per_sample: Some(0),
+            sample_fmt: Some("s32".into()),
+        };
+        assert_eq!(pcm_format(&stream).unwrap(), PcmFormat::S32);
+        stream.bits_per_raw_sample = Some("20".into());
+        assert_eq!(pcm_format(&stream).unwrap(), PcmFormat::S24);
+        stream.bits_per_raw_sample = None;
+        stream.sample_fmt = Some("fltp".into());
+        assert_eq!(pcm_format(&stream).unwrap(), PcmFormat::S24);
+        stream.bits_per_sample = Some(32);
+        assert_eq!(pcm_format(&stream).unwrap(), PcmFormat::S24);
+        stream.bits_per_sample = Some(0);
+        stream.sample_fmt = Some("s64".into());
+        assert!(pcm_format(&stream).is_err());
     }
 
     #[test]

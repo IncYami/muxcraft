@@ -147,16 +147,7 @@ struct RawSubtitle {
     #[serde(default)]
     track: usize,
     #[serde(default)]
-    only: Vec<String>,
-    #[serde(default)]
-    except: Vec<String>,
-    #[serde(default)]
-    overrides: BTreeMap<String, TrackOverride>,
-    #[serde(default)]
     headers: BTreeMap<String, String>,
-    #[serde(default)]
-    clean: Vec<String>,
-    ycbcr_matrix: Option<String>,
     #[serde(default)]
     args: Vec<String>,
 }
@@ -201,12 +192,7 @@ impl RawSubtitle {
     fn into_track(self, id: String) -> Track {
         let mut track = Track::new(id, self.source);
         track.track = self.track;
-        track.only = self.only;
-        track.except = self.except;
-        track.overrides = self.overrides;
         track.headers = self.headers;
-        track.clean = self.clean;
-        track.ycbcr_matrix = self.ycbcr_matrix;
         track.args = self.args;
         track
     }
@@ -483,17 +469,11 @@ pub struct Track {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub except: Vec<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub overrides: BTreeMap<String, TrackOverride>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub headers: BTreeMap<String, String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub clean: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shift_table: Option<ShiftTable>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub shift_frames: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ycbcr_matrix: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub deletes: Vec<DeleteRange>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -522,21 +502,13 @@ impl Track {
             codec: String::new(),
             only: Vec::new(),
             except: Vec::new(),
-            overrides: BTreeMap::new(),
             headers: BTreeMap::new(),
-            clean: Vec::new(),
             shift_table: None,
             shift_frames: 0,
-            ycbcr_matrix: None,
             deletes: Vec::new(),
             additions: Vec::new(),
         }
     }
-}
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
-#[serde(default, deny_unknown_fields)]
-pub struct TrackOverride {
-    pub source: Option<String>,
 }
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 #[serde(default, deny_unknown_fields)]
@@ -658,15 +630,6 @@ pub struct TrackPlan {
 }
 
 impl Track {
-    pub fn effective(&self, ep: &str) -> Self {
-        let mut result = self.clone();
-        if let Some(o) = self.overrides.get(ep)
-            && let Some(v) = &o.source
-        {
-            result.source = v.clone();
-        }
-        result
-    }
     pub fn enabled(&self, ep: &str) -> bool {
         (self.only.is_empty() || self.only.iter().any(|e| e == ep))
             && !self.except.iter().any(|e| e == ep)
@@ -987,6 +950,20 @@ impl Config {
                     !key.contains('.'),
                     "Subtitle ID must not contain a dot: {key}"
                 );
+                if let Some(fields) = value.as_table() {
+                    for removed in ["only", "except", "overrides"] {
+                        ensure!(
+                            !fields.contains_key(removed),
+                            "Subtitle {key}: {removed} was removed; use an episode config to select, replace, or disable this subtitle"
+                        );
+                    }
+                    for removed in ["clean", "ycbcr_matrix"] {
+                        ensure!(
+                            !fields.contains_key(removed),
+                            "Subtitle {key}: {removed} was removed; use [subtitles.processing] in the batch or episode config"
+                        );
+                    }
+                }
                 let track = match value.try_into::<SourceOrTrack>()? {
                     SourceOrTrack::Source(source) => Track::new(key, source),
                     SourceOrTrack::Track(track) => (*track).into_track(key),
@@ -1185,26 +1162,12 @@ impl Config {
                 "Invalid or duplicate track ID: {}",
                 t.id
             );
-            for key in t
-                .overrides
-                .keys()
-                .chain(t.only.iter())
-                .chain(t.except.iter())
-            {
+            for key in t.only.iter().chain(t.except.iter()) {
                 ensure!(
                     ids.contains(key),
                     "{} references unknown episode {key}",
                     t.id
                 );
-            }
-            for ep in &self.episodes {
-                let eff = t.effective(&ep.id);
-                for op in &eff.clean {
-                    ensure!(
-                        ["garbage", "extradata"].contains(&op.as_str()),
-                        "Unknown clean operation: {op}"
-                    );
-                }
             }
             for deletion in &t.deletes {
                 for ep in &deletion.episodes {
@@ -1271,23 +1234,22 @@ impl Config {
                 ep.id
             );
         }
+        if let Some(matrix) = &self.subtitle_processing.ycbcr_matrix {
+            ensure!(
+                [
+                    "auto", "None", "TV.601", "PC.601", "TV.709", "PC.709", "TV.240M", "PC.240M",
+                    "TV.FCC", "PC.FCC"
+                ]
+                .contains(&matrix.as_str()),
+                "Invalid shared YCbCr matrix: {matrix}"
+            );
+        }
         for t in &self.subtitles {
-            if let Some(matrix) = &t.ycbcr_matrix {
-                ensure!(
-                    [
-                        "auto", "None", "TV.601", "PC.601", "TV.709", "PC.709", "TV.240M",
-                        "PC.240M", "TV.FCC", "PC.FCC"
-                    ]
-                    .contains(&matrix.as_str()),
-                    "Invalid YCbCr matrix for {}: {matrix}",
-                    t.id
-                );
-                ensure!(
-                    !t.headers.contains_key("YCbCr Matrix"),
-                    "Subtitle {} sets YCbCr Matrix twice",
-                    t.id
-                );
-            }
+            ensure!(
+                !t.headers.contains_key("YCbCr Matrix"),
+                "Subtitle {} must set YCbCr Matrix in [subtitles.processing]",
+                t.id
+            );
         }
         for table in self
             .subtitles
@@ -1413,7 +1375,7 @@ impl Config {
                     if !original.enabled(&ep.id) {
                         continue;
                     }
-                    let t = original.effective(&ep.id);
+                    let t = original.clone();
                     tracks.push(TrackPlan {
                         id: t.id,
                         category: category.into(),

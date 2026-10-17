@@ -9,7 +9,7 @@ flowchart TD
     G -- No --> ERR["Stop this episode and record the error"]
     G -- Yes --> INT["Resolved episode interval"]
 
-    INT --> V["ffmpeg tee: write the exact frame count to MKV and hash source H.264 picture units"]
+    INT --> V["ffmpeg: two outputs write the cut MKV and hash source H.264 picture units"]
     V --> VH["ffmpeg: independently hash saved cut MKV picture units and compare packet count"]
     VH --> VG{"Video integrity passes?"}
     VG -- No --> ERR
@@ -36,7 +36,8 @@ flowchart TD
     CG --> MX
     TEXT["Rust: prepare ASS/SRT and collect fonts when configured"] --> MX
     MX --> TMP["Hidden .episode.mkv in output directory"]
-    TMP --> OUT["Publish episode MKV; report results in CLI"]
+    TMP --> VERIFY["mkvmerge -J: verify structure; sync temporary MKV"]
+    VERIFY --> OUT["Publish episode MKV; report results in CLI"]
     OUT --> NEXT{"More episodes in batch?"}
     NEXT -- Yes --> REPEAT["Process the next episode with the same steps"]
     NEXT -- No --> DONE["Batch complete"]

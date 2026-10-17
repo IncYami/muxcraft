@@ -5,8 +5,8 @@ digraph MultiPartFlow {
 
   toml [label="Batch TOML\nordered [episodes] clip list; no cut", fillcolor="#dceeff"];
   plan [label="Rust: resolve clips and build\nthe episode plan"];
-  preflight [label="Preflight: inspect clips\nand configured tracks"];
-  work [label="Create work/EP; report steps\nand commands in CLI", fillcolor="#fff2e2"];
+  preflight [label="Preflight: check tools, clips\nand configured tracks"];
+  work [label="Fetch TMDB tags before media work;\ncreate work/EP", fillcolor="#fff2e2"];
   join [label="mkvmerge: append clip 1 + clip 2 + ...\nwithout video encoding", fillcolor="#dceeff"];
   joined [label="Intermediate work/EP/\nfirst-source.joined.mkv", fillcolor="#e8f1ff"];
   variable [label="{episodes} resolves to joined MKV\nfor configured tracks", fillcolor="#dceeff"];
@@ -15,15 +15,16 @@ digraph MultiPartFlow {
   extract [label="ffprobe identifies audio; ffmpeg\nextracts from its source\n(joined MKV for {episodes})", fillcolor="#e7f7ed"];
   flac_choice [shape=diamond, label="FLAC\nrequested?", fillcolor="#fff2cc"];
   flac [label="ffmpeg: decode to PCM when needed\nflac: -8 --verify", fillcolor="#e7f7ed"];
-  copy [label="Use extracted original codec", fillcolor="#e7f7ed"];
+  copy [label="mkvmerge: read audio directly\nfrom source container", fillcolor="#e7f7ed"];
   pgs [shape=diamond, label="PGS\nconfigured?", fillcolor="#fff2cc"];
   pgs_extract [label="ffmpeg: stream-copy PGS to SUP\n{episodes} selects joined MKV", fillcolor="#f3eaff"];
   pgs_direct [label="Use supplied SUP directly", fillcolor="#f3eaff"];
   other [label="Additional VideoTrack sources\nkeep their own paths"];
   subtitle [label="Rust: prepare ASS/SRT; collect\nfonts when enabled", fillcolor="#fff2e2"];
   chapter [label="Rust: match ordered BDMV clips to MPLS\nchapters, or use configured chapters", fillcolor="#fff2e2"];
-  tags [label="Rust: optional track and TMDB tags", fillcolor="#fff2e2"];
+  tags [label="Rust: optional track tags", fillcolor="#fff2e2"];
   mux [label="mkvmerge: combine tracks, chapters,\nfonts and tags into temporary MKV", fillcolor="#dceeff"];
+  verify [label="mkvmerge -J: verify structure;\nsync temporary MKV", fillcolor="#e0f4f4"];
   output [label="Publish MKV without overwriting", fillcolor="#ddf7e3", color="#72ad7d"];
   clean [shape=diamond, label="clean_work_dirs?", fillcolor="#fff2cc"];
   remove [label="Remove work/EP, including joined MKV"];
@@ -35,9 +36,9 @@ digraph MultiPartFlow {
   toml -> plan -> preflight -> work -> join -> joined -> variable;
   variable -> video;
   variable -> audio;
-  audio -> extract [label="yes"];
-  extract -> flac_choice;
-  flac_choice -> flac [label="yes"];
+  audio -> flac_choice [label="yes"];
+  flac_choice -> extract [label="yes"];
+  extract -> flac;
   flac_choice -> copy [label="no"];
   variable -> pgs;
   pgs -> pgs_extract [label="container"];
@@ -57,7 +58,7 @@ digraph MultiPartFlow {
   subtitle -> mux;
   chapter -> mux;
   tags -> mux;
-  mux -> output -> clean;
+  mux -> verify -> output -> clean;
   clean -> remove [label="yes"];
   clean -> keep [label="no"];
   remove -> next;

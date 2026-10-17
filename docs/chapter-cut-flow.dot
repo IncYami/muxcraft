@@ -16,7 +16,7 @@ digraph ChapterCutFlow {
 
   subgraph cluster_video {
     label="Video"; color="#a8c8ef"; style="rounded"; fontname="DejaVu Sans";
-    video [label="ffmpeg tee: write exact frame count to MKV\nand hash source H.264 picture units", fillcolor="#e8f1ff"];
+    video [label="ffmpeg: two outputs write cut MKV\nand hash source H.264 picture units", fillcolor="#e8f1ff"];
     video_hash [label="ffmpeg: independently hash saved cut MKV\npicture units and compare packet count", fillcolor="#e8f1ff"];
     video_ok [shape=diamond, label="Integrity\npasses?", fillcolor="#fff2cc"];
     video -> video_hash -> video_ok;
@@ -41,6 +41,7 @@ digraph ChapterCutFlow {
   text [label="Rust: prepare ASS/SRT and\ncollect fonts, if configured", fillcolor="#fff2e2"];
   mux [label="mkvmerge: combine prepared tracks,\nchapters, fonts and tags", fillcolor="#dceeff"];
   partial [label="Hidden .episode.mkv\nin output directory"];
+  verify [label="mkvmerge -J: verify structure;\nsync temporary MKV", fillcolor="#e0f4f4"];
   output [label="Publish episode MKV\nand report results in CLI", fillcolor="#ddf7e3", color="#72ad7d"];
   next [shape=diamond, label="More episodes?", fillcolor="#fff2cc"];
   repeat [label="Process next episode\nwith the same steps", fillcolor="#dceeff"];
@@ -64,7 +65,7 @@ digraph ChapterCutFlow {
   pgs_hash -> mux [label="yes"];
   chapter -> mux;
   text -> mux;
-  mux -> partial -> output;
+  mux -> partial -> verify -> output;
   output -> next;
   next -> done [label="no"];
   next -> repeat [label="yes"];

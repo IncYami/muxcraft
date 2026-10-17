@@ -3,11 +3,22 @@ use anyhow::{Context, Result, bail, ensure};
 use std::path::{Path, PathBuf};
 
 pub fn escape(s: &str) -> String {
-    s.replace('&', "&amp;")
+    s.chars()
+        .filter(|c| matches!(*c as u32, 0x9 | 0xA | 0xD | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF))
+        .collect::<String>()
+        .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
+}
+
+#[cfg(test)]
+mod escape_tests {
+    #[test]
+    fn drops_xml_control_characters_and_preserves_text() {
+        assert_eq!(super::escape("A\u{0001}&<\tB"), "A&amp;&lt;\tB");
+    }
 }
 pub fn xml(chapters: &[(i64, String)], language: &str) -> Result<String> {
     ensure!(!chapters.is_empty(), "No chapters found");

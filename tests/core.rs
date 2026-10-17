@@ -212,7 +212,7 @@ fn ass_preserves_commas_and_collects_overrides_without_fallback() {
     assert!(requests.iter().any(|r| r.name == "Other"));
     assert!(requests.iter().any(|r| r.name == "Lato"));
     assert!(!requests.iter().any(|r| r.name == "Unused"));
-    let t = track("clean=['garbage','extradata']\nheaders={'YCbCr Matrix'='TV.709'}");
+    let t = track("headers={'YCbCr Matrix'='TV.709'}");
     let out = subtitle::process_ass(
         ASS,
         &t,
@@ -220,6 +220,10 @@ fn ass_preserves_commas_and_collects_overrides_without_fallback() {
         "01",
         Fps::parse("24").unwrap(),
         None,
+        subtitle::AssCleaning {
+            garbage: true,
+            extradata: true,
+        },
     )
     .unwrap()
     .dump();
@@ -235,6 +239,10 @@ fn ass_preserves_commas_and_collects_overrides_without_fallback() {
         "01",
         Fps::parse("24").unwrap(),
         None,
+        subtitle::AssCleaning {
+            garbage: true,
+            extradata: true,
+        },
     )
     .unwrap();
     assert!(cleaned.dump().contains("Style: Default"));
@@ -328,6 +336,7 @@ fn video_truncation_handles_srt_and_ass_boundaries() {
             trimmed: true,
             comment: false,
         }),
+        subtitle::AssCleaning::default(),
     )
     .unwrap()
     .dump();
@@ -344,6 +353,7 @@ fn video_truncation_handles_srt_and_ass_boundaries() {
             trimmed: true,
             comment: false,
         }),
+        subtitle::AssCleaning::default(),
     )
     .unwrap()
     .dump();
@@ -352,7 +362,7 @@ fn video_truncation_handles_srt_and_ass_boundaries() {
 #[test]
 fn ass_video_truncation_can_comment_removed_dialogue() {
     let fps = Fps::parse("24").unwrap();
-    let t = track("clean=['garbage','extradata']");
+    let t = track("");
     let ass = "[Script Info]\n[V4+ Styles]\nFormat: Name, Fontname, Bold, Italic\nStyle: Default,Arial,0,0\nStyle: OnlyAfter,Arial,0,0\nStyle: Unused,Arial,0,0\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,crossing\nDialogue: 0,0:00:03.00,0:00:04.00,OnlyAfter,,0,0,0,,after\nComment: 0,0:00:01.50,0:00:03.00,Default,,0,0,0,,crossing-comment\nComment: 0,0:00:03.00,0:00:04.00,OnlyAfter,,0,0,0,,after-comment\n";
     let out = subtitle::process_ass(
         ass,
@@ -365,6 +375,7 @@ fn ass_video_truncation_can_comment_removed_dialogue() {
             trimmed: true,
             comment: true,
         }),
+        subtitle::AssCleaning::default(),
     )
     .unwrap()
     .dump();
@@ -392,6 +403,7 @@ fn ass_video_truncation_can_comment_removed_dialogue() {
             trimmed: true,
             comment: true,
         }),
+        subtitle::AssCleaning::default(),
     )
     .unwrap()
     .dump();
@@ -413,6 +425,7 @@ fn ass_video_truncation_can_comment_removed_dialogue() {
             trimmed: false,
             comment: true,
         }),
+        subtitle::AssCleaning::default(),
     )
     .unwrap()
     .dump();
@@ -441,6 +454,7 @@ fn negative_shift_keeps_ass_dialogue_at_zero() {
         "01",
         Fps::parse("24").unwrap(),
         None,
+        subtitle::AssCleaning::default(),
     )
     .unwrap()
     .dump();
@@ -477,6 +491,7 @@ fn ass_line_add() {
         "01",
         Fps::parse("24").unwrap(),
         None,
+        subtitle::AssCleaning::default(),
     )
     .unwrap();
     assert!(out.dump().contains("added,comma"));
@@ -487,6 +502,7 @@ fn ass_line_add() {
         "01",
         Fps::parse("24").unwrap(),
         None,
+        subtitle::AssCleaning::default(),
     )
     .unwrap()
     .dump();
@@ -780,9 +796,6 @@ CR={name='Crunchyroll',language='en-US'}
     assert_eq!(cfg.video[0].colour.as_ref().unwrap().matrix, Some(1));
     assert_eq!(plan[0].tracks[1].name, "Alternate");
     assert_eq!(plan[0].tracks[2].language, "en-US");
-    // Shared processing defaults are applied after resolving the actual file extension.
-    assert!(cfg.subtitles[0].clean.is_empty());
-    assert_eq!(cfg.subtitles[0].ycbcr_matrix, None);
     let us = cfg.subtitles[0].shift_table.as_ref().unwrap();
     let cr = cfg.subtitles[1].shift_table.as_ref().unwrap();
     assert_eq!(us.episodes["01"].shift, 48);
@@ -851,6 +864,29 @@ CR={name='Crunchyroll',language='en-US'}
     ] {
         std::fs::write(&path, invalid).unwrap();
         assert!(Config::load(&path).is_err());
+    }
+}
+
+#[test]
+fn subtitle_track_uses_episode_overlays_and_shared_processing_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("batch.toml");
+    for field in [
+        "only=['01']",
+        "except=['01']",
+        "overrides={01={source='revised.ass'}}",
+        "clean=['garbage']",
+        "ycbcr_matrix='TV.709'",
+    ] {
+        std::fs::write(
+            &path,
+            format!(
+                "[project]\nshow='Test'\nout_dir='out'\nwork_dir='work'\n[episodes]\n01='video.mkv'\n[VideoTrack.01]\nsource='{{episodes}}'\n[subtitles]\nUS={{source='sub.ass',{field}}}\n[mux]\n'VideoTrack.01'={{name='Video',language='und'}}\nUS={{name='Subtitle',language='en'}}\n"
+            ),
+        )
+        .unwrap();
+        let error = format!("{:#}", Config::load(&path).unwrap_err());
+        assert!(error.contains("was removed"), "{field}: {error}");
     }
 }
 

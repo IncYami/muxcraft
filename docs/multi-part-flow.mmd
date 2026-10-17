@@ -1,23 +1,23 @@
 flowchart TD
     A["Batch TOML: ordered file list in [episodes], no chapter cut"] --> B["Rust: resolve every clip and build the episode plan"]
-    B --> C["Preflight: inspect clips and configured tracks"]
-    C --> W["Create work/EP; report steps and commands in CLI"]
+    B --> C["Preflight: check required tools, clips and configured tracks"]
+    C --> W["Fetch optional TMDB tags before media work; create work/EP"]
     W --> JOIN["mkvmerge: append clip 1 + clip 2 + ... without video encoding"]
     JOIN --> JFILE["Intermediate work/EP/first-source.joined.mkv"]
     JFILE --> VAR["{episodes} resolves to the joined MKV for configured tracks"]
     VAR --> V["VideoTrack: mkvmerge selects video from the joined MKV; no second video cut"]
     VAR --> AU{"AudioTrack configured?"}
-    AU -- Yes --> AX["ffprobe identifies audio; ffmpeg extracts from its source: joined MKV for {episodes}"]
-    AX --> AC{"FLAC requested?"}
-    AC -- Yes --> FL["ffmpeg decodes to PCM when needed; flac encodes with -8 and --verify"]
-    AC -- No --> CP["Use extracted original codec"]
+    AU -- Yes --> AC{"FLAC requested?"}
+    AC -- Yes --> AX["ffprobe identifies audio; ffmpeg extracts from its source: joined MKV for {episodes}"]
+    AX --> FL["ffmpeg decodes to PCM when needed; flac encodes with -8 and --verify"]
+    AC -- No --> CP["mkvmerge reads audio directly from its source: joined MKV for {episodes}"]
     VAR --> PG{"PGS configured?"}
     PG -- Container --> PX["ffmpeg stream-copies PGS to SUP; {episodes} selects the joined MKV"]
     PG -- SUP file --> PD["Use the SUP file directly"]
     VAR --> OTHER["Additional VideoTrack sources keep their own paths"]
     W --> SUB["Rust: prepare ASS/SRT and collect fonts if enabled"]
     W --> CH["Rust: match ordered BDMV clips to MPLS chapters, or use configured chapters"]
-    W --> TAG["Rust: prepare optional track and TMDB tags"]
+    W --> TAG["Rust: prepare optional track tags"]
     V --> MX["mkvmerge: combine selected tracks, chapters, fonts and tags into a temporary MKV"]
     FL --> MX
     CP --> MX
@@ -27,7 +27,8 @@ flowchart TD
     SUB --> MX
     CH --> MX
     TAG --> MX
-    MX --> OUT["Publish final MKV without overwriting"]
+    MX --> VERIFY["mkvmerge -J: verify output structure; sync temporary MKV"]
+    VERIFY --> OUT["Publish final MKV without overwriting"]
     OUT --> CLEAN{"clean_work_dirs?"}
     CLEAN -- Yes --> RM["Remove work/EP, including the joined MKV"]
     CLEAN -- No --> KEEP["Keep joined MKV and other intermediates"]

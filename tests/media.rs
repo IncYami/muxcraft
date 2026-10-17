@@ -109,6 +109,273 @@ fn mux_logs_commands_without_writing_audit_files() {
 }
 
 #[test]
+fn copy_and_flac_keep_source_audio_start_offset() {
+    if !available("ffmpeg") || !available("ffprobe") || !available("flac") || !available("mkvmerge")
+    {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path();
+    let source = base.join("source.mkv");
+    cmd(
+        "ffmpeg",
+        &[
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=64x64:r=24",
+            "-itsoffset",
+            "0.5",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:sample_rate=48000",
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-t",
+            "3",
+            "-c:v",
+            "libx264",
+            "-c:a",
+            "pcm_s16le",
+            source.to_str().unwrap(),
+        ],
+    );
+    let config = "[project]\nshow='Sync'\nout_dir='out'\nwork_dir='work'\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01='source.mkv'\n[VideoTrack.01]\nsource='{episodes}'\n[AudioTrack.01]\nsource='{episodes}'\ncodec='copy'\n[AudioTrack.02]\nsource='{episodes}'\ncodec='flac'\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\n'AudioTrack.01'={name='Copy',language='ja'}\n'AudioTrack.02'={name='FLAC',language='ja',delay_ms=100}\n";
+    let config_path = base.join("batch.toml");
+    std::fs::write(&config_path, config).unwrap();
+    let run = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
+        .arg(&config_path)
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let log = String::from_utf8_lossy(&run.stderr);
+    assert!(log.contains("Copy audio directly from source"), "{log}");
+    assert!(!log.contains("AudioTrack.01.extracted"), "{log}");
+    assert!(log.contains("applied sync: +600 ms"), "{log}");
+    let output = base.join("out/Sync.01.mkv");
+    let probe = Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_type,start_time",
+            "-of",
+            "json",
+        ])
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert!(probe.status.success());
+    let info: serde_json::Value = serde_json::from_slice(&probe.stdout).unwrap();
+    let starts = info["streams"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|stream| {
+            stream["start_time"]
+                .as_str()
+                .unwrap()
+                .parse::<f64>()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(starts.len(), 3);
+    assert!((starts[1] - 0.5).abs() < 0.05, "{starts:?}");
+    assert!((starts[2] - 0.6).abs() < 0.05, "{starts:?}");
+}
+
+#[test]
+fn flac_keeps_32_bit_integer_pcm() {
+    if !available("ffmpeg") || !available("ffprobe") || !available("flac") || !available("mkvmerge")
+    {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path();
+    let source = base.join("source.mkv");
+    cmd(
+        "ffmpeg",
+        &[
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=64x64:r=24",
+            "-f",
+            "lavfi",
+            "-i",
+            "aevalsrc=sin(2*PI*440*t):s=48000",
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-t",
+            "1",
+            "-c:v",
+            "libx264",
+            "-c:a",
+            "pcm_s32le",
+            source.to_str().unwrap(),
+        ],
+    );
+    let config = "[project]\nshow='Depth'\nout_dir='out'\nwork_dir='work'\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01='source.mkv'\n[VideoTrack.01]\nsource='{episodes}'\n[AudioTrack.01]\nsource='{episodes}'\ncodec='flac'\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\n'AudioTrack.01'={name='FLAC',language='ja'}\n";
+    let config_path = base.join("batch.toml");
+    std::fs::write(&config_path, config).unwrap();
+    let run = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
+        .arg(&config_path)
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let output = base.join("out/Depth.01.mkv");
+    let hash = |path: &Path| {
+        let result = Command::new("ffmpeg")
+            .args(["-v", "error", "-i"])
+            .arg(path)
+            .args([
+                "-map",
+                "0:a:0",
+                "-c:a",
+                "pcm_s32le",
+                "-f",
+                "hash",
+                "-hash",
+                "sha256",
+                "-",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        result.stdout
+    };
+    assert_eq!(hash(&source), hash(&output));
+    let probe = Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=bits_per_raw_sample",
+            "-of",
+            "json",
+        ])
+        .arg(&output)
+        .output()
+        .unwrap();
+    let info: serde_json::Value = serde_json::from_slice(&probe.stdout).unwrap();
+    assert_eq!(info["streams"][0]["bits_per_raw_sample"], "32");
+}
+
+#[test]
+fn tmdb_failure_stops_before_creating_work_files() {
+    if !available("ffmpeg") || !available("ffprobe") || !available("mkvmerge") {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path();
+    let source = base.join("source.mkv");
+    cmd(
+        "ffmpeg",
+        &[
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=64x64:r=24",
+            "-t",
+            "1",
+            "-c:v",
+            "libx264",
+            source.to_str().unwrap(),
+        ],
+    );
+    let config = "[project]\nshow='Metadata'\nout_dir='out'\nwork_dir='work'\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01='source.mkv'\n[VideoTrack.01]\nsource='{episodes}'\n[tmdb]\nid=1\noffset=-1\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\n";
+    let config_path = base.join("batch.toml");
+    std::fs::write(&config_path, config).unwrap();
+    let run = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
+        .arg(&config_path)
+        .output()
+        .unwrap();
+    assert!(!run.status.success());
+    assert!(String::from_utf8_lossy(&run.stderr).contains("Invalid TMDB number"));
+    assert!(!base.join("work/01").exists());
+    assert!(!base.join("out/Metadata.01.mkv").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn failed_mux_and_invalid_output_remove_hidden_partial() {
+    use std::os::unix::fs::PermissionsExt;
+    if !available("ffmpeg") || !available("ffprobe") || !available("mkvmerge") {
+        return;
+    }
+    for behavior in ["fail", "corrupt"] {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+        let source = base.join("source.mkv");
+        cmd(
+            "ffmpeg",
+            &[
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=64x64:r=24",
+                "-t",
+                "1",
+                "-c:v",
+                "libx264",
+                source.to_str().unwrap(),
+            ],
+        );
+        let wrapper = base.join("mkvmerge-wrapper.sh");
+        std::fs::write(
+            &wrapper,
+            "#!/bin/sh\nif [ \"$1\" = '--version' ] || [ \"$1\" = '-J' ]; then exec mkvmerge \"$@\"; fi\nout=''\nprevious=''\nfor arg in \"$@\"; do if [ \"$previous\" = '-o' ]; then out=\"$arg\"; break; fi; previous=\"$arg\"; done\nmkvmerge \"$@\"\nstatus=$?\nif [ \"$status\" -ne 0 ]; then exit \"$status\"; fi\nif [ \"$MUXCRAFT_TEST_MUX_BEHAVIOR\" = 'corrupt' ]; then : > \"$out\"; exit 0; fi\nexit 2\n",
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&wrapper).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&wrapper, permissions).unwrap();
+        let config = format!(
+            "[project]\nshow='Publish'\nout_dir='out'\nwork_dir='work'\nfps='24'\n[tools]\nmkvmerge='{}'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01='source.mkv'\n[VideoTrack.01]\nsource='{{episodes}}'\n[mux]\n'VideoTrack.01'={{name='Video',language='ja'}}\n",
+            wrapper.display()
+        );
+        let config_path = base.join("batch.toml");
+        std::fs::write(&config_path, config).unwrap();
+        let run = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
+            .arg(&config_path)
+            .env("MUXCRAFT_TEST_MUX_BEHAVIOR", behavior)
+            .output()
+            .unwrap();
+        assert!(!run.status.success(), "{behavior}");
+        assert!(!base.join("out/.Publish.01.mkv").exists(), "{behavior}");
+        assert!(!base.join("out/Publish.01.mkv").exists(), "{behavior}");
+        assert!(base.join("work/01").exists(), "{behavior}");
+    }
+}
+
+#[test]
 fn cuts_shared_m2ts_and_verifies_extracted_tracks() {
     if !available("ffmpeg") || !available("ffprobe") || !available("flac") || !available("mkvmerge")
     {
@@ -218,7 +485,7 @@ fn cuts_shared_m2ts_and_verifies_extracted_tracks() {
         put32(&mut mpls, p + 4, *tick);
     }
     std::fs::write(bdmv.join("PLAYLIST/00001.mpls"), mpls).unwrap();
-    let config = "[project]\nshow='Split'\nout_dir='out'\nwork_dir='work [one|two]'\nclean_work_dirs=false\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01={source='BDMV/STREAM/00001.m2ts',start_chapter=1,end_chapter=2}\n02={source='BDMV/STREAM/00001.m2ts',start_chapter=2}\n[chapters]\n01=[]\n02=[]\n[VideoTrack.01]\nsource='{episodes}'\n[AudioTrack.01]\nsource='{episodes}'\ncodec='flac'\n[AudioTrack.02]\nsource='{episodes}'\ntrack=1\ncodec='flac'\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\n'AudioTrack.01'={name='Audio',language='ja'}\n'AudioTrack.02'={name='Audio 2',language='ja'}\n";
+    let config = "[project]\nshow='Split'\nout_dir='out'\nwork_dir=\"work [one|two]'s\"\nclean_work_dirs=false\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01={source='BDMV/STREAM/00001.m2ts',start_chapter=1,end_chapter=2}\n02={source='BDMV/STREAM/00001.m2ts',start_chapter=2}\n[chapters]\n01=[]\n02=[]\n[VideoTrack.01]\nsource='{episodes}'\n[AudioTrack.01]\nsource='{episodes}'\ncodec='flac'\n[AudioTrack.02]\nsource='{episodes}'\ntrack=1\ncodec='flac'\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\n'AudioTrack.01'={name='Audio',language='ja'}\n'AudioTrack.02'={name='Audio 2',language='ja'}\n";
     let config_path = base.join("batch.toml");
     std::fs::write(&config_path, config).unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
@@ -254,7 +521,7 @@ fn cuts_shared_m2ts_and_verifies_extracted_tracks() {
         let final_path = base.join(format!("out/Split.{episode}.mkv"));
         assert!(final_path.is_file());
         assert!(
-            base.join(format!("work [one|two]/{episode}/00001.mkv"))
+            base.join(format!("work [one|two]'s/{episode}/00001.mkv"))
                 .is_file()
         );
         let chapter_probe = Command::new("ffprobe")
@@ -295,7 +562,8 @@ fn cuts_shared_m2ts_and_verifies_extracted_tracks() {
         }
         assert!(episode_log.contains("-rf64 always"));
         assert!(episode_log.contains("-bitexact"));
-        assert!(episode_log.contains("-f tee"));
+        assert!(episode_log.contains("-f matroska"));
+        assert!(episode_log.contains("-f hash -hash SHA256"));
         assert!(episode_log.contains("at 48000 Hz"));
     }
     let raw = |path: &Path, interval: Option<(f64, f64)>| {
@@ -308,7 +576,7 @@ fn cuts_shared_m2ts_and_verifies_extracted_tracks() {
                 &format!("atrim=start={start:.9}:end={end:.9},asetpts=PTS-STARTPTS"),
             ]);
         }
-        command.args(["-map", "0:a:0", "-c:a", "pcm_s16le", "-f", "s16le", "-"]);
+        command.args(["-map", "0:a:0", "-c:a", "pcm_s24le", "-f", "s24le", "-"]);
         let result = command.output().unwrap();
         assert!(
             result.status.success(),
@@ -895,10 +1163,15 @@ fn episode_config_is_used_for_mux_and_cli() {
         )
         .unwrap();
     }
+    std::fs::write(
+        base.join("styled.ass"),
+        "[Script Info]\nTitle: test\n[Aegisub Project Garbage]\nLast Style Storage: Default\n[V4+ Styles]\nFormat: Name, Fontname, Bold, Italic\nStyle: Default,Arial,0,0\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.10,0:00:00.80,Default,,0,0,0,,Styled\n",
+    )
+    .unwrap();
     std::fs::create_dir(base.join("episodes")).unwrap();
     std::fs::write(
         base.join("episodes/01.toml"),
-        "[episodes]\n01='source.mkv'\n[subtitles]\nUS='replacement.srt'\nCR12=false\n",
+        "[episodes]\n01='source.mkv'\n[subtitles]\nUS='replacement.srt'\nCR12=false\n[subtitles.processing]\nclean_garbage=false\nycbcr_matrix='PC.709'\n",
     )
     .unwrap();
     let config = r#"
@@ -916,10 +1189,17 @@ source='{episodes}'
 [subtitles]
 US='original.srt'
 CR12='commentary.srt'
+Styled='styled.ass'
+[subtitles.fonts]
+enabled=false
+[subtitles.processing]
+clean_garbage=true
+ycbcr_matrix='TV.709'
 [mux]
 'VideoTrack.01'={name='Video',language='und'}
 US={name='US',language='en'}
 CR12={name='Commentary',language='en'}
+Styled={name='Styled',language='en'}
 "#;
     let config_path = base.join("batch.toml");
     std::fs::write(&config_path, config).unwrap();
@@ -973,6 +1253,12 @@ CR12={name='Commentary',language='en'}
     assert!(names(&first).contains(&"US".to_owned()));
     assert!(!names(&first).contains(&"Commentary".to_owned()));
     assert!(names(&second).contains(&"Commentary".to_owned()));
+    let first_ass = std::fs::read_to_string(base.join("work/01/Styled.ass")).unwrap();
+    let second_ass = std::fs::read_to_string(base.join("work/02/Styled.ass")).unwrap();
+    assert!(first_ass.contains("[Aegisub Project Garbage]"));
+    assert!(!second_ass.contains("[Aegisub Project Garbage]"));
+    assert!(first_ass.contains("YCbCr Matrix: PC.709"));
+    assert!(second_ass.contains("YCbCr Matrix: TV.709"));
     let log = String::from_utf8_lossy(&output.stderr);
     assert!(log.contains("replacement.srt"), "{log}");
     assert!(!base.join("out/EpisodeConfig.01.audit.json").exists());

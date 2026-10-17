@@ -42,10 +42,10 @@ fn main() {
     println!("cargo:rerun-if-env-changed=MUXCRAFT_BUILD_DATE");
     println!("cargo:rerun-if-env-changed=MUXCRAFT_BUILD_SHA");
     println!("cargo:rerun-if-changed=.git/HEAD");
-    if let Ok(head) = std::fs::read_to_string(".git/HEAD") {
-        if let Some(reference) = head.strip_prefix("ref: ") {
-            println!("cargo:rerun-if-changed=.git/{}", reference.trim());
-        }
+    if let Ok(head) = std::fs::read_to_string(".git/HEAD")
+        && let Some(reference) = head.strip_prefix("ref: ")
+    {
+        println!("cargo:rerun-if-changed=.git/{}", reference.trim());
     }
     let date = env::var("MUXCRAFT_BUILD_DATE").unwrap_or_else(|_| utc_date());
     let revision = env::var("MUXCRAFT_BUILD_SHA")
