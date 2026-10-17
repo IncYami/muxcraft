@@ -25,3 +25,5 @@ Add focused unit tests for parsing and transformations; use `tests/core.rs` for 
 ## Commits & Pull Requests
 
 Recent commits use short, imperative subjects, such as `Verify cut media before final mux`. Keep each commit focused. Pull requests should explain the behavior change, list commands run, and link an issue when applicable. Include a TOML example for new configuration syntax and update affected flowcharts. A push to `main` triggers cross-platform builds and a dated GitHub release, so verify the CI result after merging.
+
+After completing a coding task, validate the changes, commit them, and push to `origin/main` without waiting for a separate reminder, unless the user asks to keep them local. Include only work relevant to the task; leave ignored personal examples out of commits. Confirm the push and report the commit and CI result.
