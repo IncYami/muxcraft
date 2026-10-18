@@ -71,7 +71,7 @@ For each subtitle ID, `[subtitles.shift]` accepts an integer frame shift or a co
 
 `[subtitles.delete]` maps IDs to arrays of `{ episodes = [], start, end }`: start is required, nonnegative, `end` optional, and ranges are half-open; omitted episodes applies to all episodes. `[subtitles.add]` maps IDs to arrays of `{ episodes = [], lines }`, where lines is a nonempty string array of complete ASS Dialogue lines or SRT blocks. Edits run in order: shift, delete, add. Added lines use final timestamps.
 
-For inline subtitle tracks, `headers` is a string map of ASS headers other than `YCbCr Matrix`. The shared `ycbcr_matrix` accepts `auto`, `None`, `TV.601`, `PC.601`, `TV.709`, `PC.709`, `TV.240M`, `PC.240M`, `TV.FCC`, or `PC.FCC`. Unknown processing fields and removed per-track options are configuration errors.
+For inline subtitle tracks, `headers` is a string map of ASS headers other than `YCbCr Matrix`. The shared `ycbcr_matrix` accepts `auto`, `None`, `TV.601`, `PC.601`, `TV.709`, `PC.709`, `TV.240M`, `PC.240M`, `TV.FCC`, or `PC.FCC`. Unknown configuration fields are errors.
 
 ## Episode overlays
 

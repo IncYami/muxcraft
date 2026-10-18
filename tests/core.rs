@@ -707,7 +707,7 @@ fn tmdb_multilingual_xml() {
     assert!(xml.contains("<Name>TVDB</Name>"));
 }
 #[test]
-fn all_migrated_batches_parse_and_expand() {
+fn local_examples_parse_and_expand() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
     if !dir.is_dir() {
         return;
@@ -868,30 +868,7 @@ CR={name='Crunchyroll',language='en-US'}
 }
 
 #[test]
-fn subtitle_track_uses_episode_overlays_and_shared_processing_only() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("batch.toml");
-    for field in [
-        "only=['01']",
-        "except=['01']",
-        "overrides={01={source='revised.ass'}}",
-        "clean=['garbage']",
-        "ycbcr_matrix='TV.709'",
-    ] {
-        std::fs::write(
-            &path,
-            format!(
-                "[project]\nshow='Test'\nout_dir='out'\nwork_dir='work'\n[episodes]\n01='video.mkv'\n[VideoTrack.01]\nsource='{{episodes}}'\n[subtitles]\nUS={{source='sub.ass',{field}}}\n[mux]\n'VideoTrack.01'={{name='Video',language='und'}}\nUS={{name='Subtitle',language='en'}}\n"
-            ),
-        )
-        .unwrap();
-        let error = format!("{:#}", Config::load(&path).unwrap_err());
-        assert!(error.contains("was removed"), "{field}: {error}");
-    }
-}
-
-#[test]
-fn pgs_has_its_own_section_and_rejects_legacy_subtitle_entries() {
+fn pgs_tracks_have_their_own_section_and_unique_ids() {
     let dir = tempfile::tempdir().unwrap();
     let source = "[project]\nshow='Test'\nout_dir='out'\nwork_dir='work'\n[episodes]\n'01'='source.mkv'\n[VideoTrack.01]\nsource='{episodes}'\n[subtitles]\nUS='US.ass'\n[pgs]\nPGS='{episodes}'\nPGS2={source='subtitles.mks',track=1,only=['01']}\n[mux]\n'VideoTrack.01'={name='Video',language='ja-JP'}\nUS={name='US',language='en-US'}\nPGS={name='PGS',language='ja-JP'}\nPGS2={name='Second PGS',language='ja-JP'}\n";
     let path = dir.path().join("batch.toml");
@@ -902,13 +879,6 @@ fn pgs_has_its_own_section_and_rejects_legacy_subtitle_entries() {
     assert_eq!(plan[0].tracks[2].id, "PGS");
     assert_eq!(plan[0].tracks[3].id, "PGS2");
     assert_eq!(plan[0].tracks[3].track, 1);
-
-    let legacy = source.replace(
-        "[pgs]\nPGS='{episodes}'",
-        "PGS={source='{episodes}',kind='pgs'}\n[pgs]",
-    );
-    std::fs::write(&path, legacy).unwrap();
-    assert!(Config::load(&path).is_err());
 
     let duplicate = source.replace("PGS='{episodes}'", "US='{episodes}'");
     std::fs::write(&path, duplicate).unwrap();

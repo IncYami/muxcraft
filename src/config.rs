@@ -950,20 +950,6 @@ impl Config {
                     !key.contains('.'),
                     "Subtitle ID must not contain a dot: {key}"
                 );
-                if let Some(fields) = value.as_table() {
-                    for removed in ["only", "except", "overrides"] {
-                        ensure!(
-                            !fields.contains_key(removed),
-                            "Subtitle {key}: {removed} was removed; use an episode config to select, replace, or disable this subtitle"
-                        );
-                    }
-                    for removed in ["clean", "ycbcr_matrix"] {
-                        ensure!(
-                            !fields.contains_key(removed),
-                            "Subtitle {key}: {removed} was removed; use [subtitles.processing] in the batch or episode config"
-                        );
-                    }
-                }
                 let track = match value.try_into::<SourceOrTrack>()? {
                     SourceOrTrack::Source(source) => Track::new(key, source),
                     SourceOrTrack::Track(track) => (*track).into_track(key),
@@ -1551,7 +1537,6 @@ fn disable_episode_tracks(
             mux.remove(&id);
         }
     }
-    let _ = episode;
     Ok(())
 }
 

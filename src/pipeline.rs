@@ -1092,19 +1092,12 @@ fn load_sub(
     let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
     let is_srt = extension.eq_ignore_ascii_case("srt");
     let is_ass = extension.eq_ignore_ascii_case("ass");
-    if !(is_srt || is_ass) {
-        if extension.eq_ignore_ascii_case("sup") {
-            bail!("PGS subtitle {} belongs in [pgs]", t.id);
-        } else if extension.is_empty() {
-            bail!("Subtitle {} has no extension; expected .ass or .srt", t.id);
-        } else {
-            bail!(
-                "Subtitle {} has unsupported extension .{}; expected .ass or .srt",
-                t.id,
-                extension
-            );
-        }
-    }
+    ensure!(
+        is_srt || is_ass,
+        "Subtitle {} must be .ass or .srt: {}",
+        t.id,
+        path.display()
+    );
     let input = std::fs::read_to_string(path)
         .with_context(|| format!("UTF-8 subtitle: {}", path.display()))?;
     let default = crate::config::Correction::default();

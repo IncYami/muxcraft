@@ -128,7 +128,7 @@ Every video and audio table must declare `source`; audio tables must also declar
 
 Paths containing `*` or `?` are searched automatically after variable expansion. Both wildcards match within one path segment. Square brackets are literal, which is useful for release names like `[EA]`. The pattern must match exactly one file. Recursive `**` is unsupported; enumerate directories or use variables.
 
-`[subtitles]` maps a text subtitle ID to a path or to an inline table when it needs `track`, `headers`, or `args`. The resolved `.ass` or `.srt` file extension selects its type, including when the configured source uses a glob. SRT remains SRT; muxcraft does not convert subtitle formats. Change a source or disable a subtitle in an episode config; the removed `only`, `except`, and `overrides` subtitle fields are rejected.
+`[subtitles]` maps a text subtitle ID to a path or to an inline table when it needs `track`, `headers`, or `args`. The resolved `.ass` or `.srt` file extension selects its type, including when the configured source uses a glob. SRT remains SRT; muxcraft does not convert subtitle formats. Change a source or disable a subtitle in an episode config.
 
 `[pgs]` maps each image subtitle ID directly to a container or `.sup` file. A string selects the first PGS stream; use `{ source = '{episodes}', track = 1 }` to select the second PGS stream from a container. `track` is zero-based among PGS streams. `only`, `except`, and `args` are available in the inline form. PGS tracks are muxed after text subtitles and use the same `[mux]` naming and language settings. Container extraction uses FFmpeg stream copy, with no automatic delay preservation. Text cleaning, shifts, deletions, and additions do not apply to PGS; use `delay_ms` in `[mux]` for timing.
 
@@ -247,7 +247,7 @@ dirs = []
 
 Each `dirs` entry is an additional recursive search root. For example, `dirs = ['{raw}']` searches all directories below `{raw}` without listing them individually. `search_current_dir` refers to the TOML file's directory, independent of where the command is run. `use_system_fonts` adds usual system directories. All four settings above are their defaults.
 
-Fonts are matched by family, full name, or PostScript name, then weight and italic. The metadata reader supports Unicode name records; legacy fonts with only non-Unicode names may not match an ASS request. An approximate variant produces a warning. Whole TTF/OTF/TTC/OTC files are copied, including variable fonts, without glyph conversion, subsetting, creating collections, or editing internal names. Attachment names use patterns such as `Family-BoldItalic.ttf` or `Family.ttf`. Identical content is deduplicated by SHA-256; filename collisions gain a hash suffix. Selection is deterministic, and source paths appear in the CLI.
+Fonts are matched by family, full name, or PostScript name, then weight and italic. The metadata reader supports Unicode name records; fonts with only non-Unicode names may not match an ASS request. An approximate variant produces a warning. Whole TTF/OTF/TTC/OTC files are copied, including variable fonts, without glyph conversion, subsetting, creating collections, or editing internal names. Attachment names use patterns such as `Family-BoldItalic.ttf` or `Family.ttf`. Identical content is deduplicated by SHA-256; filename collisions gain a hash suffix. Selection is deterministic, and source paths appear in the CLI.
 
 This collector does not reproduce every libass substitution rule, check glyph coverage, or select particular variable font instances.
 
