@@ -1092,9 +1092,10 @@ fn load_sub(
     let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
     let is_srt = extension.eq_ignore_ascii_case("srt");
     let is_ass = extension.eq_ignore_ascii_case("ass");
+    let is_vtt = extension.eq_ignore_ascii_case("vtt");
     ensure!(
-        is_srt || is_ass,
-        "Subtitle {} must be .ass or .srt: {}",
+        is_srt || is_ass || is_vtt,
+        "Subtitle {} must be .ass, .srt, or .vtt: {}",
         t.id,
         path.display()
     );
@@ -1107,14 +1108,18 @@ fn load_sub(
         &default
     };
     let fps = Fps::parse(&cfg.project.fps)?;
-    if is_srt {
+    if is_srt || is_vtt {
         ensure!(
             t.headers.is_empty(),
-            "Subtitle {}: ASS headers are not valid for SRT",
+            "Subtitle {}: ASS headers are only valid for ASS",
             t.id
         );
         return Ok((
-            subtitle::process_srt(&input, t, correction, ep, fps, cutoff)?,
+            if is_srt {
+                subtitle::process_srt(&input, t, correction, ep, fps, cutoff)?
+            } else {
+                subtitle::process_vtt(&input, t, correction, ep, fps, cutoff)?
+            },
             None,
         ));
     }
@@ -2112,6 +2117,12 @@ fn run_episode(
                 let ext = if let Some(doc) = doc {
                     used.extend(requests(&doc)?);
                     "ass"
+                } else if tp
+                    .source
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("vtt"))
+                {
+                    "vtt"
                 } else {
                     "srt"
                 };

@@ -173,6 +173,16 @@ pub fn process_srt(
     fps: Fps,
     cutoff: Option<SubtitleCutoff>,
 ) -> Result<String> {
+    if t.shift_frames == 0
+        && correction.shift == 0
+        && correction.ranges.iter().all(|range| range.shift == 0)
+        && !t.deletes.iter().any(|rule| targets(&rule.episodes, ep))
+        && !t.additions.iter().any(|rule| targets(&rule.episodes, ep))
+        && cutoff.is_none()
+    {
+        parse_srt(input)?;
+        return Ok(input.to_owned());
+    }
     let mut cues = Vec::new();
     for mut c in parse_srt(input)? {
         correct(&mut c, correction, t.shift_frames, fps);
@@ -210,6 +220,256 @@ pub fn process_srt(
         });
     }
     Ok(dump_srt(&cues))
+}
+
+#[derive(Clone)]
+struct VttCue {
+    lines: Vec<String>,
+    timing_line: usize,
+    start: i64,
+    end: i64,
+    settings: String,
+}
+
+impl VttCue {
+    fn write_times(&mut self) {
+        self.lines[self.timing_line] = format!(
+            "{} --> {}{}",
+            vtt_time(self.start),
+            vtt_time(self.end),
+            self.settings
+        );
+    }
+
+    fn shift_inline_times(&mut self, delta: i64) -> Result<()> {
+        let timestamps = regex::Regex::new(r"<(?:\d{2,}:)?\d{2}:\d{2}\.\d{3}>")?;
+        for line in self.lines.iter_mut().skip(self.timing_line + 1) {
+            let mut updated = String::new();
+            let mut previous = 0;
+            for match_ in timestamps.find_iter(line) {
+                updated.push_str(&line[previous..match_.start()]);
+                let old = parse_vtt_time(&line[match_.start() + 1..match_.end() - 1])?;
+                updated.push('<');
+                updated.push_str(&vtt_time((old + delta).clamp(self.start, self.end)));
+                updated.push('>');
+                previous = match_.end();
+            }
+            updated.push_str(&line[previous..]);
+            *line = updated;
+        }
+        Ok(())
+    }
+}
+
+enum VttBlock {
+    Cue(VttCue),
+    Other(String),
+}
+
+fn parse_vtt_time(value: &str) -> Result<i64> {
+    let parts: Vec<_> = value.split(':').collect();
+    ensure!(
+        (2..=3).contains(&parts.len()),
+        "Invalid WebVTT timestamp: {value}"
+    );
+    let (seconds, millis) = parts[parts.len() - 1]
+        .split_once('.')
+        .context("WebVTT timestamp has no milliseconds")?;
+    ensure!(
+        millis.len() == 3 && millis.bytes().all(|c| c.is_ascii_digit()),
+        "Invalid WebVTT milliseconds: {value}"
+    );
+    let parse_component = |part: &str| -> Result<i64> {
+        ensure!(
+            part.len() >= 2 && part.bytes().all(|c| c.is_ascii_digit()),
+            "Invalid WebVTT timestamp: {value}"
+        );
+        Ok(part.parse()?)
+    };
+    let seconds = parse_component(seconds)?;
+    let minutes = parse_component(parts[parts.len() - 2])?;
+    ensure!(seconds < 60, "Invalid WebVTT seconds: {value}");
+    let hours = if parts.len() == 3 {
+        ensure!(minutes < 60, "Invalid WebVTT minutes: {value}");
+        parse_component(parts[0])?
+    } else {
+        0
+    };
+    hours
+        .checked_mul(3600)
+        .and_then(|hours| hours.checked_add(minutes.checked_mul(60)?))
+        .and_then(|whole| whole.checked_add(seconds))
+        .and_then(|whole| whole.checked_mul(1000))
+        .and_then(|whole| whole.checked_add(millis.parse::<i64>().ok()?))
+        .context("WebVTT timestamp is too large")
+}
+
+fn vtt_time(ms: i64) -> String {
+    let seconds = ms.max(0) / 1000;
+    format!(
+        "{:02}:{:02}:{:02}.{:03}",
+        seconds / 3600,
+        seconds / 60 % 60,
+        seconds % 60,
+        ms.max(0) % 1000
+    )
+}
+
+fn parse_vtt_cue(block: &str) -> Result<VttCue> {
+    let lines: Vec<String> = block.lines().map(str::to_owned).collect();
+    let timing_line = if lines.first().is_some_and(|line| line.contains("-->")) {
+        0
+    } else {
+        ensure!(
+            lines.len() >= 2 && !lines[0].contains("-->"),
+            "WebVTT cue is missing a timing line"
+        );
+        1
+    };
+    ensure!(lines.len() > timing_line + 1, "WebVTT cue has no text");
+    let (start, rest) = lines[timing_line]
+        .split_once("-->")
+        .context("WebVTT cue is missing -->")?;
+    let rest = rest.trim_start();
+    let end_len = rest.find(char::is_whitespace).unwrap_or(rest.len());
+    let end = parse_vtt_time(&rest[..end_len])?;
+    let start = parse_vtt_time(start.trim())?;
+    ensure!(end >= start, "WebVTT cue ends before it starts");
+    let settings = rest[end_len..].to_owned();
+    Ok(VttCue {
+        lines,
+        timing_line,
+        start,
+        end,
+        settings,
+    })
+}
+
+fn vtt_blocks(input: &str) -> Result<(String, Vec<VttBlock>)> {
+    let normalized = input.trim_start_matches('\u{feff}').replace("\r\n", "\n");
+    let separator = regex::Regex::new(r"\n[ \t]*\n+")?;
+    let mut blocks = separator
+        .split(normalized.trim())
+        .filter(|block| !block.is_empty());
+    let header = blocks.next().context("WebVTT has no header")?.to_owned();
+    let signature = header.lines().next().unwrap_or("");
+    ensure!(
+        signature == "WEBVTT"
+            || signature.starts_with("WEBVTT ")
+            || signature.starts_with("WEBVTT\t"),
+        "WebVTT must start with a WEBVTT header"
+    );
+    let mut parsed = Vec::new();
+    for block in blocks {
+        let first = block.lines().next().unwrap_or("");
+        if first == "STYLE"
+            || first == "REGION"
+            || first == "NOTE"
+            || first.starts_with("NOTE ")
+            || first.starts_with("NOTE\t")
+        {
+            parsed.push(VttBlock::Other(block.to_owned()));
+        } else {
+            parsed.push(VttBlock::Cue(parse_vtt_cue(block)?));
+        }
+    }
+    Ok((header, parsed))
+}
+
+pub fn process_vtt(
+    input: &str,
+    t: &Track,
+    correction: &Correction,
+    ep: &str,
+    fps: Fps,
+    cutoff: Option<SubtitleCutoff>,
+) -> Result<String> {
+    let (header, mut blocks) = vtt_blocks(input)?;
+    let has_deletes = t.deletes.iter().any(|rule| targets(&rule.episodes, ep));
+    let has_additions = t.additions.iter().any(|rule| targets(&rule.episodes, ep));
+    let has_shift = t.shift_frames != 0
+        || correction.shift != 0
+        || correction.ranges.iter().any(|range| range.shift != 0);
+    if !has_shift && !has_deletes && !has_additions && cutoff.is_none() {
+        return Ok(input.to_owned());
+    }
+    for block in &mut blocks {
+        let VttBlock::Cue(cue) = block else { continue };
+        let old_start = cue.start;
+        let mut times = Cue {
+            start: cue.start,
+            end: cue.end,
+            text: String::new(),
+        };
+        correct(&mut times, correction, t.shift_frames, fps);
+        cue.start = times.start;
+        cue.end = times.end;
+        if cue.start != old_start {
+            cue.shift_inline_times(cue.start - old_start)?;
+        }
+        if has_shift {
+            cue.write_times();
+        }
+    }
+    for deletion in &t.deletes {
+        if targets(&deletion.episodes, ep) {
+            blocks.retain(|block| match block {
+                VttBlock::Other(_) => true,
+                VttBlock::Cue(cue) => {
+                    let frame = fps.frame(cue.start, false);
+                    frame < deletion.start || deletion.end.is_some_and(|end| frame >= end)
+                }
+            });
+        }
+    }
+    for addition in &t.additions {
+        if targets(&addition.episodes, ep) {
+            for line in &addition.lines {
+                let cue = parse_vtt_cue(line)?;
+                let position = blocks.iter().position(
+                    |block| matches!(block, VttBlock::Cue(existing) if existing.start > cue.start),
+                );
+                blocks.insert(position.unwrap_or(blocks.len()), VttBlock::Cue(cue));
+            }
+        }
+    }
+    if let Some(cutoff) = cutoff {
+        if cutoff.trimmed {
+            for block in &mut blocks {
+                if let VttBlock::Cue(cue) = block
+                    && cue.start < cutoff.end_ms
+                    && cue.end > cutoff.end_ms
+                {
+                    cue.end = cutoff.end_ms;
+                    cue.shift_inline_times(0)?;
+                    cue.write_times();
+                }
+            }
+        }
+        blocks.retain_mut(|block| {
+            let VttBlock::Cue(cue) = block else {
+                return true;
+            };
+            if cutoff.trimmed {
+                if cue.start >= cutoff.end_ms {
+                    return false;
+                }
+            } else if cue.end > cutoff.end_ms {
+                return false;
+            }
+            cue.end > cue.start && cue.end > 0
+        });
+    }
+    let mut output = header;
+    for block in blocks {
+        output.push_str("\n\n");
+        match block {
+            VttBlock::Cue(cue) => output.push_str(&cue.lines.join("\n")),
+            VttBlock::Other(raw) => output.push_str(&raw),
+        }
+    }
+    output.push('\n');
+    Ok(output)
 }
 
 #[derive(Debug, Clone)]

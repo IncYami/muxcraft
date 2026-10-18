@@ -109,6 +109,62 @@ fn mux_logs_commands_without_writing_audit_files() {
 }
 
 #[test]
+fn webvtt_is_muxed_as_a_webvtt_track() {
+    if !available("ffmpeg") || !available("ffprobe") || !available("mkvmerge") {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source.mkv");
+    cmd(
+        "ffmpeg",
+        &[
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=64x64:r=24",
+            "-t",
+            "1",
+            "-c:v",
+            "libx264",
+            source.to_str().unwrap(),
+        ],
+    );
+    std::fs::write(
+        dir.path().join("captions.vtt"),
+        "WEBVTT\n\nSTYLE\n::cue { color: yellow; }\n\nline-a\n00:00:00.100 --> 00:00:00.900 align:center\nHello <b>world</b>\n",
+    )
+    .unwrap();
+    let config = dir.path().join("batch.toml");
+    std::fs::write(
+        &config,
+        "[project]\nshow='Vtt'\nout_dir='out'\nwork_dir='work'\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01='source.mkv'\n[VideoTrack.01]\nsource='{episodes}'\n[subtitles]\nUS='captions.vtt'\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\nUS={name='English',language='en-US'}\n",
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
+        .arg(&config)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let mkv = dir.path().join("out/Vtt.01.mkv");
+    let output = Command::new("mkvmerge")
+        .arg("-J")
+        .arg(&mkv)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let info: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let tracks = info["tracks"].as_array().unwrap();
+    assert_eq!(tracks.len(), 2);
+    assert_eq!(tracks[1]["properties"]["codec_id"], "S_TEXT/WEBVTT");
+}
+
+#[test]
 fn copy_and_flac_keep_source_audio_start_offset() {
     if !available("ffmpeg") || !available("ffprobe") || !available("flac") || !available("mkvmerge")
     {

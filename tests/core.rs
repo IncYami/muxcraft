@@ -445,6 +445,86 @@ fn negative_shift_keeps_srt_line_at_zero() {
     assert!(subtitle::parse_time("00:61:00,000").is_err());
 }
 #[test]
+fn srt_without_timing_edits_keeps_original_text() {
+    let input = "7\r\n00:00:01,000 --> 00:00:02,000\r\nHello\r\n";
+    let out = subtitle::process_srt(
+        input,
+        &track(""),
+        &Correction::default(),
+        "01",
+        Fps::parse("24").unwrap(),
+        None,
+    )
+    .unwrap();
+    assert_eq!(out, input);
+}
+#[test]
+fn vtt_preserves_blocks_and_shifts_cue_and_inline_timestamps() {
+    let input = "WEBVTT - captions\n\nSTYLE\n::cue { color: yellow; }\n\nREGION\nid:bottom\n\nNOTE retained\ncomment\n\nfirst\n00:01.000 --> 00:02.000 line:90% align:center\n<v Narrator>Hello <00:01.500>world\n\n00:03.000 --> 00:04.000\nSecond\n";
+    let fps = Fps::parse("24").unwrap();
+    let plain =
+        subtitle::process_vtt(input, &track(""), &Correction::default(), "01", fps, None).unwrap();
+    assert_eq!(plain, input);
+    let shifted = subtitle::process_vtt(
+        input,
+        &track("shift_frames=24"),
+        &Correction::default(),
+        "01",
+        fps,
+        None,
+    )
+    .unwrap();
+    assert!(shifted.contains("STYLE\n::cue { color: yellow; }"));
+    assert!(shifted.contains("REGION\nid:bottom"));
+    assert!(shifted.contains("NOTE retained\ncomment"));
+    assert!(shifted.contains("first\n00:00:01.980 --> 00:00:02.980 line:90% align:center"));
+    assert!(shifted.contains("<v Narrator>Hello <00:00:02.480>world"));
+    assert!(shifted.contains("00:00:03.980 --> 00:00:04.980\nSecond"));
+}
+
+#[test]
+fn vtt_delete_add_and_truncate_preserve_format() {
+    let input = "WEBVTT\n\nSTYLE\n::cue { color: yellow; }\n\n00:00:01.000 --> 00:00:02.000\nFirst\n\n00:00:03.000 --> 00:00:05.000\nSecond <00:00:04.500>part\n";
+    let mut t = track("");
+    t.deletes = vec![config::DeleteRange {
+        episodes: vec![],
+        start: 24,
+        end: Some(48),
+    }];
+    t.additions = vec![config::AddLines {
+        episodes: vec![],
+        lines: vec!["added\n00:00:02.000 --> 00:00:02.500 position:20%\nNew".into()],
+    }];
+    let out = subtitle::process_vtt(
+        input,
+        &t,
+        &Correction::default(),
+        "01",
+        Fps::parse("24").unwrap(),
+        Some(subtitle::SubtitleCutoff {
+            end_ms: 4000,
+            trimmed: true,
+            comment: false,
+        }),
+    )
+    .unwrap();
+    assert!(out.starts_with("WEBVTT\n\nSTYLE\n::cue { color: yellow; }"));
+    assert!(!out.contains("First"));
+    assert!(out.contains("added\n00:00:02.000 --> 00:00:02.500 position:20%\nNew"));
+    assert!(out.contains("00:00:03.000 --> 00:00:04.000\nSecond <00:00:04.000>part"));
+    assert!(
+        subtitle::process_vtt(
+            "1\n00:00:01.000 --> 00:00:02.000\nbad",
+            &track(""),
+            &Correction::default(),
+            "01",
+            Fps::parse("24").unwrap(),
+            None
+        )
+        .is_err()
+    );
+}
+#[test]
 fn negative_shift_keeps_ass_dialogue_at_zero() {
     let t = track("shift_frames=-48");
     let out = subtitle::process_ass(
