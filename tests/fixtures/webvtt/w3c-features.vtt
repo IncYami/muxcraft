@@ -1,0 +1,20 @@
+WEBVTT
+
+STYLE
+::cue(.speaker) { color: lime; }
+
+NOTE This note separates the style and region.
+
+REGION
+id:bottom
+width:80%
+lines:2
+
+opening
+00:00:01.000 --> 00:00:03.000 region:bottom align:start
+<v Narrator><c.speaker>First line.</c>
+<00:00:02.000><lang ja><ruby>旅<rt>たび</rt></ruby></lang>
+
+closing
+00:00:03.000 --> 00:00:05.000 line:90% position:50%
+<i>Second line.</i>

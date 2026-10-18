@@ -1,4 +1,8 @@
-use muxcraft::fonts::{FontIndex, Request};
+use muxcraft::{
+    config::{Correction, Track},
+    fonts::{FontIndex, Request},
+    subtitle::{self, Fps},
+};
 use std::collections::BTreeSet;
 use std::{path::Path, process::Command};
 fn available(cmd: &str) -> bool {
@@ -162,6 +166,70 @@ fn webvtt_is_muxed_as_a_webvtt_track() {
     let tracks = info["tracks"].as_array().unwrap();
     assert_eq!(tracks.len(), 2);
     assert_eq!(tracks[1]["properties"]["codec_id"], "S_TEXT/WEBVTT");
+}
+
+#[test]
+fn reference_webvtt_survives_mkvtoolnix_roundtrip() {
+    if !available("mkvmerge") || !available("mkvextract") {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let track: Track = toml::from_str("id='US'\nsource='captions.vtt'\nshift_frames=24").unwrap();
+    for name in ["settings-multiple", "comment-in-cue-text", "w3c-features"] {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/webvtt")
+            .join(format!("{name}.vtt"));
+        let input = std::fs::read_to_string(&fixture).unwrap();
+        let shifted = subtitle::process_vtt(
+            &input,
+            &track,
+            &Correction::default(),
+            "01",
+            Fps::parse("24").unwrap(),
+            None,
+        )
+        .unwrap();
+        let processed = dir.path().join(format!("{name}.vtt"));
+        let mkv = dir.path().join(format!("{name}.mkv"));
+        let extracted = dir.path().join(format!("{name}.extracted.vtt"));
+        std::fs::write(&processed, &shifted).unwrap();
+        cmd(
+            "mkvmerge",
+            &["-o", mkv.to_str().unwrap(), processed.to_str().unwrap()],
+        );
+        cmd(
+            "mkvextract",
+            &[
+                "tracks",
+                mkv.to_str().unwrap(),
+                &format!("0:{}", extracted.display()),
+            ],
+        );
+        let result = std::fs::read_to_string(extracted).unwrap();
+        assert!(
+            result.trim_start_matches('\u{feff}').starts_with("WEBVTT"),
+            "{name}: {result}"
+        );
+        match name {
+            "settings-multiple" => {
+                assert!(result.contains("00:00:00.980"));
+                assert!(result.contains("id0"));
+                assert!(result.contains("align:start line:1% vertical:lr size:50% position:25%"));
+            }
+            "comment-in-cue-text" => {
+                assert!(result.contains("00:00:00.980"));
+                assert!(result.contains("NOTE text\nNOTE text2"));
+            }
+            "w3c-features" => {
+                assert!(result.contains("STYLE\n::cue(.speaker) { color: lime; }"));
+                assert!(result.contains("REGION\nid:bottom"));
+                assert!(
+                    result.contains("<00:00:02.980><lang ja><ruby>旅<rt>たび</rt></ruby></lang>")
+                );
+            }
+            _ => unreachable!(),
+        }
+    }
 }
 
 #[test]

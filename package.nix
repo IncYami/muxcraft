@@ -42,7 +42,7 @@ rustPlatform.buildRustPackage {
   meta = {
     description = "Auditable batch remuxing driven by TOML";
     homepage = "https://github.com/IncYami/muxcraft";
-    license = lib.licenses.mpl20;
+    license = [ lib.licenses.mpl20 lib.licenses.bsd3 ];
     mainProgram = "muxcraft";
     platforms = [ "x86_64-linux" "aarch64-linux" ];
   };

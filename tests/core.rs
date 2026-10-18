@@ -12,6 +12,13 @@ fn documentation_config(name: &str) -> std::path::PathBuf {
         .join(name)
 }
 
+fn webvtt_fixture(name: &str) -> String {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/webvtt")
+        .join(name);
+    std::fs::read_to_string(path).unwrap()
+}
+
 #[test]
 fn committed_documentation_configs_load_and_plan() {
     for config in [
@@ -523,6 +530,85 @@ fn vtt_delete_add_and_truncate_preserve_format() {
         )
         .is_err()
     );
+}
+#[test]
+fn wpt_webvtt_fixtures_keep_supported_structure_after_shift() {
+    let fps = Fps::parse("24").unwrap();
+    let shift = track("shift_frames=24");
+    for name in [
+        "settings-multiple.vtt",
+        "timings-omitted-hours.vtt",
+        "comment-in-cue-text.vtt",
+        "header-space.vtt",
+    ] {
+        let input = webvtt_fixture(name);
+        assert_eq!(
+            subtitle::process_vtt(&input, &track(""), &Correction::default(), "01", fps, None)
+                .unwrap(),
+            input,
+            "{name}"
+        );
+        let shifted =
+            subtitle::process_vtt(&input, &shift, &Correction::default(), "01", fps, None).unwrap();
+        assert!(shifted.starts_with("WEBVTT"), "{name}");
+        assert!(shifted.contains("00:00:00.980"), "{name}: {shifted}");
+        match name {
+            "settings-multiple.vtt" => {
+                assert!(shifted.contains("id0\n"));
+                assert!(shifted.contains("align:start line:1% vertical:lr size:50% position:25%"));
+            }
+            "comment-in-cue-text.vtt" => {
+                assert!(shifted.contains("NOTE this is real comment"));
+                assert!(shifted.contains("\nNOTE text\nNOTE text2"));
+            }
+            "timings-omitted-hours.vtt" => {
+                assert!(shifted.contains("00:00:00.980 --> 00:00:01.980"));
+            }
+            "header-space.vtt" => assert!(shifted.contains("text")),
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
+fn wpt_webvtt_invalid_timing_is_an_explicit_error() {
+    let input = webvtt_fixture("timings-60.vtt");
+    assert!(
+        subtitle::process_vtt(
+            &input,
+            &track(""),
+            &Correction::default(),
+            "01",
+            Fps::parse("24").unwrap(),
+            None
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn w3c_webvtt_features_survive_shift_and_truncation() {
+    let input = webvtt_fixture("w3c-features.vtt");
+    let out = subtitle::process_vtt(
+        &input,
+        &track("shift_frames=24"),
+        &Correction::default(),
+        "01",
+        Fps::parse("24").unwrap(),
+        Some(subtitle::SubtitleCutoff {
+            end_ms: 4000,
+            trimmed: true,
+            comment: false,
+        }),
+    )
+    .unwrap();
+    assert!(out.contains("STYLE\n::cue(.speaker) { color: lime; }"));
+    assert!(out.contains("NOTE This note separates the style and region."));
+    assert!(out.contains("REGION\nid:bottom\nwidth:80%\nlines:2"));
+    assert!(out.contains("opening\n00:00:01.980 --> 00:00:03.980 region:bottom align:start"));
+    assert!(out.contains("<v Narrator><c.speaker>First line.</c>"));
+    assert!(out.contains("<00:00:02.980><lang ja><ruby>旅<rt>たび</rt></ruby></lang>"));
+    assert!(out.contains("closing\n00:00:03.980 --> 00:00:04.000 line:90% position:50%"));
 }
 #[test]
 fn negative_shift_keeps_ass_dialogue_at_zero() {
