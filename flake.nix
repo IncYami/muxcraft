@@ -10,7 +10,7 @@
       packages = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };
-          muxcraft = pkgs.callPackage ./package.nix { revision = self.rev or null; };
+          muxcraft = pkgs.callPackage ./package.nix { };
         in {
           default = muxcraft;
           muxcraft = muxcraft;

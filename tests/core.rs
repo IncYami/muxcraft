@@ -12,6 +12,19 @@ fn documentation_config(name: &str) -> std::path::PathBuf {
         .join(name)
 }
 
+#[test]
+fn version_matches_package_version() {
+    let output = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
+        .arg("--version")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        format!("muxcraft {}\n", env!("CARGO_PKG_VERSION"))
+    );
+}
+
 fn webvtt_fixture(name: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/webvtt")

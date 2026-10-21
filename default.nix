@@ -1,3 +1,3 @@
-{ pkgs ? import <nixpkgs> { }, revision ? null }:
+{ pkgs ? import <nixpkgs> { } }:
 
-pkgs.callPackage ./package.nix { inherit revision; }
+pkgs.callPackage ./package.nix { }

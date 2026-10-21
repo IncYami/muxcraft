@@ -17,22 +17,15 @@ jobs:
   prepare:
     runs-on: ubuntu-24.04
     outputs:
-      date: ${{ steps.version.outputs.date }}
-      revision: ${{ steps.version.outputs.revision }}
       version: ${{ steps.version.outputs.version }}
     steps:
+      - uses: actions/checkout@v7
       - name: Identify build
         id: version
-        env:
-          COMMIT_SHA: ${{ github.sha }}
         run: |
-          date=$(date -u +%Y.%m.%d)
-          revision=${COMMIT_SHA:0:8}
-          {
-            echo "date=$date"
-            echo "revision=$revision"
-            echo "version=$date-g$revision"
-          } >> "$GITHUB_OUTPUT"
+          version=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)"$/\1/p' Cargo.toml)
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
   build:
     needs: prepare
@@ -47,13 +40,10 @@ jobs:
           - runner: macos-15
             target: aarch64-apple-darwin
     runs-on: ${{ matrix.runner }}
-    env:
-      MUXCRAFT_BUILD_DATE: ${{ needs.prepare.outputs.date }}
-      MUXCRAFT_BUILD_SHA: ${{ needs.prepare.outputs.revision }}
     steps:
       - uses: actions/checkout@v7
-      - name: Use current stable Rust
-        run: rustup update stable
+      - name: Use project Rust
+        run: rustup toolchain install 1.99.1 --profile minimal --component clippy,rustfmt
       - name: Test library
         run: cargo test --locked --lib
       - name: Build

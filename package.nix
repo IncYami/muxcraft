@@ -6,7 +6,6 @@
   flac,
   mkvtoolnix,
   cacert,
-  revision ? null,
 }:
 
 rustPlatform.buildRustPackage {
@@ -21,7 +20,7 @@ rustPlatform.buildRustPackage {
         relative = lib.removePrefix "${root}/" (toString path);
       in
       path == root
-      || builtins.elem relative [ "Cargo.toml" "Cargo.lock" "build.rs" "src" "tests" "docs" ]
+      || builtins.elem relative [ "Cargo.toml" "Cargo.lock" "src" "tests" "docs" ]
       || lib.hasPrefix "src/" relative
       || lib.hasPrefix "tests/" relative
       || lib.hasPrefix "docs/" relative;
@@ -31,7 +30,6 @@ rustPlatform.buildRustPackage {
   nativeBuildInputs = [ makeWrapper ];
   nativeCheckInputs = [ ffmpeg flac mkvtoolnix ];
   SSL_CERT_FILE = "${cacert}/etc/ssl/certs/ca-bundle.crt";
-  MUXCRAFT_BUILD_SHA = if revision == null then "unknown" else builtins.substring 0 8 revision;
 
   postInstall = ''
     wrapProgram $out/bin/muxcraft \
