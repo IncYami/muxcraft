@@ -304,7 +304,8 @@ fn shift_correction(
 
 // [subtitles.delete] values accept 'start:end episodes' strings.
 // '@episodes' is a comma-separated list; without it the range applies to every episode.
-// Without 'end' the range extends to the end of the video.
+// An empty side is open: START alone starts at 0 and END alone runs to the end.
+// A side with no colon is an error.
 fn delete_ranges(key: &str, value: &toml::Value) -> Result<Vec<DeleteRange>> {
     let raws: Vec<&str> = match value {
         toml::Value::String(raw) => vec![raw.as_str()],
@@ -343,32 +344,50 @@ fn parse_delete_range(key: &str, raw: &str) -> Result<DeleteRange> {
         None => (raw, Vec::new()),
     };
     let tokens: Vec<&str> = text.split_whitespace().collect();
-    let number = |token: &str| {
-        token
-            .parse::<i64>()
-            .with_context(|| format!("Delete {key}: '{token}' in '{raw}' is not a frame number"))
-    };
+    let context = format!("Delete {key}");
     let (start, end) = match tokens.as_slice() {
-        [] => bail!("Delete {key}: '{raw}' is empty"),
-        [only] => {
-            let (start, end) = match only.split_once(':') {
-                Some((start, end)) => (number(start)?, Some(number(end)?)),
-                None => (number(only)?, None),
-            };
-            (start, end)
-        }
-        [start, end] => (number(start)?, Some(number(end)?)),
-        _ => bail!("Delete {key}: '{raw}' has extra text"),
+        [] => bail!("{context}: '{raw}' is empty"),
+        [only] => range_bounds(&context, raw, only)?,
+        _ => bail!("{context}: '{raw}' must be a 'start:end' range"),
     };
     ensure!(
         start >= 0 && end.is_none_or(|end| end > start),
-        "Delete {key}: '{raw}' has an invalid range"
+        "{context}: '{raw}' has an invalid range"
     );
     Ok(DeleteRange {
         episodes,
         start,
         end,
     })
+}
+
+// Parses a 'START:END' token where one side may be empty. An empty side is open:
+// START alone starts at 0 and END alone runs to the end of the video.
+// Both sides empty has no frame and is an error.
+fn range_bounds(context: &str, raw: &str, head: &str) -> Result<(i64, Option<i64>)> {
+    let number = |token: &str| {
+        token
+            .parse::<i64>()
+            .with_context(|| format!("{context}: '{token}' in '{raw}' is not a frame number"))
+    };
+    let (start_text, end_text) = head
+        .split_once(':')
+        .with_context(|| format!("{context}: '{raw}' must be a 'start:end' range"))?;
+    ensure!(
+        !start_text.is_empty() || !end_text.is_empty(),
+        "{context}: '{raw}' has no frame number"
+    );
+    let start = if start_text.is_empty() {
+        0
+    } else {
+        number(start_text)?
+    };
+    let end = if end_text.is_empty() {
+        None
+    } else {
+        Some(number(end_text)?)
+    };
+    Ok((start, end))
 }
 
 // [chapters] values accept a chapter file path, plain names for discovered
@@ -445,13 +464,16 @@ fn parse_shift_range(context: &str, raw: &str) -> Result<Range> {
             );
             (*head, 0)
         }
-        [head, shift] => (*head, number(shift)?),
+        [head, shift] => {
+            ensure!(
+                head.contains(':'),
+                "{context}: '{raw}' must be a 'start:end' range"
+            );
+            (*head, number(shift)?)
+        }
         _ => bail!("{context}: '{raw}' has extra text"),
     };
-    let (start, end) = match head.split_once(':') {
-        Some((start, end)) => (number(start)?, Some(number(end)?)),
-        None => (number(head)?, None),
-    };
+    let (start, end) = range_bounds(&context, raw, head)?;
     Ok(Range { start, end, shift })
 }
 #[derive(Debug, Deserialize)]
