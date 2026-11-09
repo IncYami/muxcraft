@@ -193,7 +193,7 @@ mod tests {
     #[test]
     fn bundled_token_is_used_without_an_environment_override() {
         let config: Tmdb =
-            toml::from_str("id = 1\ntoken_env = 'MUXCRAFT_TMDB_TEST_UNSET_TOKEN_2C19F3'").unwrap();
+            toml::from_str("id = 1\ntoken-env = 'MUXCRAFT_TMDB_TEST_UNSET_TOKEN_2C19F3'").unwrap();
         let client = Client::new(&config).unwrap();
         assert_eq!(client.token, DEFAULT_TMDB_TOKEN.trim());
     }

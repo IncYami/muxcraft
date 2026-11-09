@@ -937,7 +937,7 @@ codec='copy'
 US='us.ass'
 CR='cr.ass'
 [subtitles.processing]
-clean_garbage=true
+clean-garbage=true
 ycbcr-matrix='auto'
 [subtitles.shift]
 US={default=24,'01'={frames=48,ranges=[{start=2374,frames=72}]}}

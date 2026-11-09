@@ -5,8 +5,8 @@ work-dir = 'work'
 output = '{show}.{ep}.mkv'
 
 [episodes]
-01 = { source = 'media/disc.m2ts', start_chapter = 1, end_chapter = 4 }
-02 = { source = 'media/disc.m2ts', start_chapter = 4 }
+01 = { source = 'media/disc.m2ts', start-chapter = 1, end-chapter = 4 }
+02 = { source = 'media/disc.m2ts', start-chapter = 4 }
 
 [VideoTrack.01]
 source = '{episodes}'

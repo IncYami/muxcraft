@@ -49,7 +49,7 @@
 <g id="node3" class="node">
 <title>cut</title>
 <path fill="#fff2cc" stroke="#8297b0" d="M842.01,-1456.65C842.01,-1456.65 766.01,-1423.43 766.01,-1423.43 760.52,-1421.02 760.52,-1416.22 766.01,-1413.81 766.01,-1413.81 842.01,-1380.59 842.01,-1380.59 847.5,-1378.18 858.5,-1378.18 863.99,-1380.59 863.99,-1380.59 939.99,-1413.81 939.99,-1413.81 945.48,-1416.22 945.48,-1421.02 939.99,-1423.43 939.99,-1423.43 863.99,-1456.65 863.99,-1456.65 858.5,-1459.06 847.5,-1459.06 842.01,-1456.65"/>
-<text xml:space="preserve" text-anchor="middle" x="853" y="-1421.67" font-family="DejaVu Sans" font-size="11.00">start_chapter</text>
+<text xml:space="preserve" text-anchor="middle" x="853" y="-1421.67" font-family="DejaVu Sans" font-size="11.00">start-chapter</text>
 <text xml:space="preserve" text-anchor="middle" x="853" y="-1408.17" font-family="DejaVu Sans" font-size="11.00">present?</text>
 </g>
 <!-- plan&#45;&gt;cut -->

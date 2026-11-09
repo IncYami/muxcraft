@@ -1,6 +1,6 @@
 flowchart TD
     A["Batch TOML: [episodes] entry"] --> B["Rust: load config, expand paths, build episode plan"]
-    B --> C{"start_chapter present?"}
+    B --> C{"start-chapter present?"}
     C -- No --> NC["Use the configured source without cutting"]
     C -- Yes --> D["Rust: discover matching MPLS in BDMV/PLAYLIST"]
     D --> E["Rust: read 45 kHz chapter marks and select interval"]

@@ -5,7 +5,7 @@ digraph ChapterCutFlow {
 
   toml [label="Batch TOML\n[episodes] entry", fillcolor="#dceeff"];
   plan [label="Rust: load config, expand paths,\nbuild episode plan"];
-  cut [shape=diamond, label="start_chapter\npresent?", fillcolor="#fff2cc"];
+  cut [shape=diamond, label="start-chapter\npresent?", fillcolor="#fff2cc"];
   no_cut [label="Use configured source; standard mux\npath outside this diagram", fillcolor="#f3f4f6"];
   discover [label="Rust: find matching MPLS\nin BDMV/PLAYLIST"];
   marks [label="Rust: read 45 kHz chapter marks\nand select interval"];

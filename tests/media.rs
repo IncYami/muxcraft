@@ -609,7 +609,7 @@ fn cuts_shared_m2ts_and_verifies_extracted_tracks() {
         put32(&mut mpls, p + 4, *tick);
     }
     std::fs::write(bdmv.join("PLAYLIST/00001.mpls"), mpls).unwrap();
-    let config = "[project]\nshow='Split'\nout-dir='out'\nwork-dir=\"work [one|two]'s\"\nclean-work=false\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01={source='BDMV/STREAM/00001.m2ts',start_chapter=1,end_chapter=2}\n02={source='BDMV/STREAM/00001.m2ts',start_chapter=2}\n[chapters]\n01=[]\n02=[]\n[VideoTrack.01]\nsource='{episodes}'\n[AudioTrack.01]\nsource='{episodes}'\ncodec='flac'\n[AudioTrack.02]\nsource='{episodes}'\ntrack=1\ncodec='flac'\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\n'AudioTrack.01'={name='Audio',language='ja'}\n'AudioTrack.02'={name='Audio 2',language='ja'}\n";
+    let config = "[project]\nshow='Split'\nout-dir='out'\nwork-dir=\"work [one|two]'s\"\nclean-work=false\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01={source='BDMV/STREAM/00001.m2ts',start-chapter=1,end-chapter=2}\n02={source='BDMV/STREAM/00001.m2ts',start-chapter=2}\n[chapters]\n01=[]\n02=[]\n[VideoTrack.01]\nsource='{episodes}'\n[AudioTrack.01]\nsource='{episodes}'\ncodec='flac'\n[AudioTrack.02]\nsource='{episodes}'\ntrack=1\ncodec='flac'\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\n'AudioTrack.01'={name='Audio',language='ja'}\n'AudioTrack.02'={name='Audio 2',language='ja'}\n";
     let config_path = base.join("batch.toml");
     std::fs::write(&config_path, config).unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
@@ -1095,7 +1095,7 @@ codec='flac'
 styled='subtitle-service/{ep}.ass'
 srt='{ep}.srt*'
 [subtitles.processing]
-clean_garbage=true
+clean-garbage=true
 [pgs]
 pgs='subtitle.sup'
 pgs_alt={source='pgs.mks',track=1}
@@ -1120,7 +1120,7 @@ pgs_alt={name='Second PGS',language='ja-JP'}
         std::fs::create_dir_all(&fonts).unwrap();
         std::fs::copy(font, fonts.join("fixture.ttf")).unwrap();
         let index = FontIndex::scan(&[fonts], false).unwrap();
-        config = config.replace("enabled=false", "enabled=true\nsearch_current_dir=false");
+        config = config.replace("enabled=false", "enabled=true\nsearch-current-dir=false");
         font_family = index.faces[0].family.clone();
         with_font = true;
     }
@@ -1295,7 +1295,7 @@ fn episode_config_is_used_for_mux_and_cli() {
     std::fs::create_dir(base.join("episodes")).unwrap();
     std::fs::write(
         base.join("episodes/01.toml"),
-        "[episodes]\n01='source.mkv'\n[subtitles]\nUS='replacement.srt'\nCR12=false\n[subtitles.processing]\nclean_garbage=false\nycbcr-matrix='PC.709'\n",
+        "[episodes]\n01='source.mkv'\n[subtitles]\nUS='replacement.srt'\nCR12=false\n[subtitles.processing]\nclean-garbage=false\nycbcr-matrix='PC.709'\n",
     )
     .unwrap();
     let config = r#"
@@ -1317,7 +1317,7 @@ Styled='styled.ass'
 [subtitles.fonts]
 enabled=false
 [subtitles.processing]
-clean_garbage=true
+clean-garbage=true
 ycbcr-matrix='TV.709'
 [mux]
 'VideoTrack.01'={name='Video',language='und'}

@@ -69,7 +69,7 @@ struct RawConfig {
     #[serde(default)]
     mux: IndexMap<String, MuxSettings>,
     tmdb: Option<Tmdb>,
-    #[serde(default)]
+    #[serde(default, rename = "mux-args")]
     mux_args: Vec<String>,
 }
 #[derive(Debug, Deserialize)]
@@ -218,10 +218,13 @@ struct MuxSettings {
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct SubtitleProcessing {
+    #[serde(rename = "clean-garbage")]
     pub(crate) clean_garbage: bool,
+    #[serde(rename = "clean-extradata")]
     pub(crate) clean_extradata: bool,
     #[serde(rename = "ycbcr-matrix")]
     pub(crate) ycbcr_matrix: Option<String>,
+    #[serde(rename = "truncate-video")]
     pub(crate) truncate_video: Option<TruncateVideo>,
 }
 
@@ -369,7 +372,9 @@ pub struct CutSpec {
 #[serde(deny_unknown_fields)]
 struct RawCutEpisode {
     source: String,
+    #[serde(rename = "start-chapter")]
     start_chapter: usize,
+    #[serde(rename = "end-chapter")]
     end_chapter: Option<usize>,
 }
 
@@ -559,8 +564,11 @@ pub struct AddLines {
 pub struct FontConfig {
     pub enabled: bool,
     pub dirs: Vec<String>,
+    #[serde(rename = "use-system-fonts")]
     pub use_system_fonts: bool,
+    #[serde(rename = "search-current-dir")]
     pub search_current_dir: bool,
+    #[serde(rename = "search-subtitle-dirs")]
     pub search_subtitle_dirs: bool,
 }
 impl Default for FontConfig {
@@ -586,17 +594,17 @@ pub struct Tmdb {
     pub offset: i32,
     #[serde(default = "languages")]
     pub languages: Vec<String>,
-    #[serde(default = "token_env")]
+    #[serde(default = "token_env", rename = "token-env")]
     pub token_env: String,
-    #[serde(default = "yes")]
+    #[serde(default = "yes", rename = "write-ids")]
     pub write_ids: bool,
-    #[serde(default = "yes")]
+    #[serde(default = "yes", rename = "write-date")]
     pub write_date: bool,
-    #[serde(default = "yes")]
+    #[serde(default = "yes", rename = "write-title")]
     pub write_title: bool,
-    #[serde(default = "yes")]
+    #[serde(default = "yes", rename = "write-summary")]
     pub write_summary: bool,
-    #[serde(default = "yes")]
+    #[serde(default = "yes", rename = "write-synopsis")]
     pub write_synopsis: bool,
 }
 fn one() -> u32 {

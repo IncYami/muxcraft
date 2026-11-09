@@ -23,9 +23,9 @@ Templates that pass `--mode plan --no-check` are in [configs](configs/): [simple
 | `[tools].flac` | string | `'flac'` | FLAC encoder executable. |
 | `[tools].mkvmerge` | string | `'mkvmerge'` | MKVToolNix muxer executable. |
 | `[vars]` | string or table | empty | String values are global variables. `{ from = 'ep', offset = N, pad = N }` derives a padded numeric episode value; `from` must be `ep`, pad 1–10, and each result positive. A nested `[vars.NAME]` groups a string value to episode IDs. Reserved names: `config_dir`, `show`, `ep`, `episodes`, `source`. |
-| `[episodes]` | string, string array, or table | required | Ordered episode map. IDs contain ASCII letters/digits, `-`, `_`; IDs must be unique. A string is one source; an array is ordered clips to join. A table requires `source`, `start_chapter`, and optional `end_chapter` to cut an M2TS at one-based chapter boundaries; end is exclusive. A `.toml` string names an episode overlay file. At least one episode is required. |
+| `[episodes]` | string, string array, or table | required | Ordered episode map. IDs contain ASCII letters/digits, `-`, `_`; IDs must be unique. A string is one source; an array is ordered clips to join. A table requires `source`, `start-chapter`, and optional `end-chapter` to cut an M2TS at one-based chapter boundaries; end is exclusive. A `.toml` string names an episode overlay file. At least one episode is required. |
 | `[chapters]` | string, string array, or table array | automatic for joined BDMV clips | Per-episode chapters: file path (`.txt`/`.xml`), names array (BDMV playlist times), or `{ frame, name }` entries. Referenced episode IDs must exist. Use either configured chapters or `chapters = true` on a video track, not both. |
-| `mux_args` | string array | empty | Additional global mkvmerge arguments, each as one argument. |
+| `mux-args` | string array | empty | Additional global mkvmerge arguments, each as one argument. |
 
 `[tools]` values may be executable names found on `PATH` or explicit executable paths.
 
@@ -70,9 +70,9 @@ WebVTT uses the same track syntax as ASS and SRT:
 US = '{raw}/captions/en-US.vtt'
 ```
 
-`[subtitles.fonts]` defaults to enabled font collection with current-directory, subtitle-directory, and system font searches enabled; `dirs` is empty. All fields are optional: `enabled`, `dirs` (string array), `use_system_fonts`, `search_current_dir`, `search_subtitle_dirs`.
+`[subtitles.fonts]` defaults to enabled font collection with current-directory, subtitle-directory, and system font searches enabled; `dirs` is empty. All fields are optional: `enabled`, `dirs` (string array), `use-system-fonts`, `search-current-dir`, `search-subtitle-dirs`.
 
-`[subtitles.processing]` supports `clean_garbage` (false), `clean_extradata` (false), `ycbcr-matrix` (absent), and `truncate_video` (absent). ASS cleaning and YCbCr Matrix apply only to ASS; WebVTT and SRT use timing operations only. An episode overlay may replace individual settings for that episode. The `truncate_video` table has `trimmed` (true) and `comment` (false). When set, cues starting at or after the video end are removed; crossing cues are clamped when `trimmed = true`, otherwise any cue extending past the end is removed. With `comment = true`, removed ASS dialogue is kept as a timed Comment event; crossing dialogue can also remain as a clamped dialogue. SRT and WebVTT have no timed Comment event. Truncation runs after shifts, deletions, and additions and uses selected video duration; it does not trim video.
+`[subtitles.processing]` supports `clean-garbage` (false), `clean-extradata` (false), `ycbcr-matrix` (absent), and `truncate-video` (absent). ASS cleaning and YCbCr Matrix apply only to ASS; WebVTT and SRT use timing operations only. An episode overlay may replace individual settings for that episode. The `truncate-video` table has `trimmed` (true) and `comment` (false). When set, cues starting at or after the video end are removed; crossing cues are clamped when `trimmed = true`, otherwise any cue extending past the end is removed. With `comment = true`, removed ASS dialogue is kept as a timed Comment event; crossing dialogue can also remain as a clamped dialogue. SRT and WebVTT have no timed Comment event. Truncation runs after shifts, deletions, and additions and uses selected video duration; it does not trim video.
 
 For each subtitle ID, `[subtitles.shift]` accepts an integer frame shift or a correction table. A batch correction table requires `default` and may specify episode IDs as keys; episode corrections replace the default. An episode overlay can provide `{ frames = N, ranges = [...] }` directly. Each range has required `start` (nonnegative frame), optional `end` (exclusive and greater than start), and `frames` (shift, default 0). Shifts use rational CFR frame timing. Overlapping range shifts add.
 
@@ -84,8 +84,8 @@ For inline ASS tracks, `headers` is a string map of ASS headers other than `YCbC
 
 An `[episodes]` value ending in `.toml` loads an overlay. That file must define exactly the same one episode ID and its actual non-TOML source; overlays cannot include other overlays. Its settings are merged over the batch settings for that episode. Tables merge recursively; subtitle shift entries merge by ID. A boolean `false` under `VideoTrack`, `AudioTrack`, `subtitles`, or `pgs` disables that inherited track and removes its mux settings for this episode. The main batch still defines any track that is enabled for other episodes. Paths in both files resolve relative to the main batch configuration directory.
 
-For example, an overlay can set `[subtitles] US = 'revised.ass'` and `[subtitles.processing] clean_garbage = false` for one episode while inheriting the remaining batch settings.
+For example, an overlay can set `[subtitles] US = 'revised.ass'` and `[subtitles.processing] clean-garbage = false` for one episode while inheriting the remaining batch settings.
 
 ## TMDB
 
-`[tmdb]` is optional. `id` is required (`u32`); `season` defaults to `1`, `movie` to `false`, `offset` to `0`, `languages` to `['en-US']`, and `token_env` to `'TMDB_TOKEN'`. `write_ids`, `write_date`, `write_title`, `write_summary`, and `write_synopsis` all default to `true`. An empty languages list is invalid. The `TMDB_TOKEN` environment variable overrides the built-in read token; `token_env` changes the variable name.
+`[tmdb]` is optional. `id` is required (`u32`); `season` defaults to `1`, `movie` to `false`, `offset` to `0`, `languages` to `['en-US']`, and `token-env` to `'TMDB_TOKEN'`. `write-ids`, `write-date`, `write-title`, `write-summary`, and `write-synopsis` all default to `true`. An empty languages list is invalid. The `TMDB_TOKEN` environment variable overrides the built-in read token; `token-env` changes the variable name.
