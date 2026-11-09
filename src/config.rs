@@ -1017,12 +1017,6 @@ impl Config {
                         });
                     }
                     SubtitleShift::Table(mut table) => {
-                        for removed in ["frames", "ranges"] {
-                            ensure!(
-                                !table.contains_key(removed),
-                                "Shift {key} no longer uses '{removed}' tables; use 'start:end frames' strings"
-                            );
-                        }
                         let default = match table.remove("default") {
                             Some(value) => shift_correction(&key, None, &value, 0)?,
                             None => Correction::default(),
@@ -1032,7 +1026,7 @@ impl Config {
                             .map(|(episode, value)| {
                                 ensure!(
                                     ids.contains(&episode),
-                                    "Shift {key} references unknown episode {episode}"
+                                    "Shift {key} keys must reference episodes; found '{episode}'"
                                 );
                                 let correction = shift_correction(
                                     &key,
