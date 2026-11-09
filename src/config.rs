@@ -57,7 +57,7 @@ struct RawConfig {
     tools: Tools,
     episodes: IndexMap<String, RawEpisode>,
     #[serde(default)]
-    chapters: BTreeMap<String, ChapterSpec>,
+    chapters: BTreeMap<String, toml::Value>,
     #[serde(rename = "VideoTrack", default)]
     video_track: IndexMap<String, RawVideo>,
     #[serde(rename = "AudioTrack", default)]
@@ -368,6 +368,64 @@ fn parse_delete_range(key: &str, raw: &str) -> Result<DeleteRange> {
         episodes,
         start,
         end,
+    })
+}
+
+// [chapters] values accept a chapter file path, plain names for discovered
+// BDMV marks, or 'frame:name' strings with one entry per list element.
+// An element counts as a frame entry when the text before its first colon
+// is a nonnegative integer; a list must use one form only.
+fn chapter_spec(id: &str, value: &toml::Value) -> Result<ChapterSpec> {
+    match value {
+        toml::Value::String(path) => Ok(ChapterSpec::File(path.clone())),
+        toml::Value::Array(entries) => {
+            let raws = entries
+                .iter()
+                .map(|entry| {
+                    entry.as_str().with_context(|| {
+                        format!("Chapters {id} must contain strings, found {entry}")
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let is_frame = |raw: &str| match raw.split_once(':') {
+                Some((head, _)) => {
+                    let digits = head.strip_prefix('-').unwrap_or(head);
+                    !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit())
+                }
+                None => false,
+            };
+            match (
+                raws.iter().any(|raw| is_frame(raw)),
+                raws.iter().all(|raw| is_frame(raw)),
+            ) {
+                (false, _) => Ok(ChapterSpec::Names(
+                    raws.into_iter().map(Into::into).collect(),
+                )),
+                (true, true) => raws
+                    .iter()
+                    .map(|raw| parse_chapter_frame(id, raw))
+                    .collect::<Result<Vec<_>>>()
+                    .map(ChapterSpec::Frames),
+                (true, false) => bail!("Chapters {id} mixes 'frame:name' entries and plain names"),
+            }
+        }
+        _ => bail!("Chapters {id} must be a file path, names, or 'frame:name' strings"),
+    }
+}
+
+fn parse_chapter_frame(id: &str, raw: &str) -> Result<ChapterEntry> {
+    let context = format!("Chapters {id}: '{raw}'");
+    let (head, name) = raw
+        .split_once(':')
+        .with_context(|| format!("{context} must be a 'frame:name' entry"))?;
+    let frame = head
+        .parse::<i64>()
+        .with_context(|| format!("{context}: '{head}' is not a frame number"))?;
+    ensure!(frame >= 0, "{context} has a negative frame");
+    ensure!(!name.is_empty(), "{context} has an empty name");
+    Ok(ChapterEntry {
+        frame,
+        name: name.into(),
     })
 }
 
@@ -981,7 +1039,11 @@ impl Config {
         for id in raw.chapters.keys() {
             ensure!(ids.contains(id), "Chapters reference unknown episode {id}");
         }
-        let mut chapters = raw.chapters;
+        let mut chapters = raw
+            .chapters
+            .into_iter()
+            .map(|(id, value)| chapter_spec(&id, &value).map(|spec| (id, spec)))
+            .collect::<Result<BTreeMap<_, _>>>()?;
         let episodes = raw
             .episodes
             .into_iter()

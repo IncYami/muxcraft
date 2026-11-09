@@ -1114,7 +1114,7 @@ DISC_ID={ 'Disc A'=['1','10'], 'Disc B'=['2','3'] }
 [chapters]
 '1'=[]
 '10'=['Opening']
-'2'=[{frame=0,name='First'},{frame=24,name='Second'}]
+'2'=['0:First','24:Second']
 '3'='chapters.txt'
 [VideoTrack.01]
 source='{episodes}'
@@ -1148,6 +1148,10 @@ source='{episodes}'
         input.replace("'Disc B'=['2','3']", "'Disc B'=['2','3','1']"),
         input.replace("'3'='chapters.txt'", "'99'='chapters.txt'"),
         input.replace("'3'='chapters.txt'", "'3'='chapters.ogm'"),
+        input.replace("'2'=['0:First','24:Second']", "'2'=['0:First','24']"),
+        input.replace("'2'=['0:First','24:Second']", "'2'=['-5:Pre']"),
+        input.replace("'2'=['0:First','24:Second']", "'2'=['24:']"),
+        input.replace("'2'=['0:First','24:Second']", "'2'=['0:First','Opening']"),
         input.replace("'1'='one.mkv'", "'bad.id'='one.mkv'"),
         input.replace("[VideoTrack.01]", "[video]"),
         input.replace("[VideoTrack.01]", "[VideoTrack.01]\nid='video'"),

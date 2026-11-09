@@ -1073,7 +1073,7 @@ enabled=false
 '01'='source.mkv'
 '02'='source.mkv'
 [chapters]
-'01'=[{frame=0,name='Start & <one>'},{frame=24,name='End'}]
+'01'=['0:Start & <one>','24:End']
 '02'='chapters.txt'
 [VideoTrack.01]
 source='{episodes}'
