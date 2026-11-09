@@ -302,6 +302,75 @@ fn shift_correction(
     Ok(correction)
 }
 
+// [subtitles.delete] values accept 'start:end episodes' strings.
+// '@episodes' is a comma-separated list; without it the range applies to every episode.
+// Without 'end' the range extends to the end of the video.
+fn delete_ranges(key: &str, value: &toml::Value) -> Result<Vec<DeleteRange>> {
+    let raws: Vec<&str> = match value {
+        toml::Value::String(raw) => vec![raw.as_str()],
+        toml::Value::Array(entries) => entries
+            .iter()
+            .map(|entry| {
+                entry
+                    .as_str()
+                    .with_context(|| format!("Delete {key} must contain strings, found {entry}"))
+            })
+            .collect::<Result<Vec<_>>>()?,
+        _ => bail!("Delete {key} must be a 'start:end episodes' string or a list of them"),
+    };
+    ensure!(!raws.is_empty(), "Delete {key} has no ranges");
+    let mut ranges = Vec::new();
+    for raw in raws {
+        ranges.push(parse_delete_range(key, raw)?);
+    }
+    Ok(ranges)
+}
+
+fn parse_delete_range(key: &str, raw: &str) -> Result<DeleteRange> {
+    let (text, episodes) = match raw.split_once('@') {
+        Some((text, list)) => {
+            let mut ids = Vec::new();
+            for part in list.split(',') {
+                let id = part.trim();
+                ensure!(
+                    !id.is_empty(),
+                    "Delete {key}: '{raw}' has an empty episode ID"
+                );
+                ids.push(id.into());
+            }
+            (text, ids)
+        }
+        None => (raw, Vec::new()),
+    };
+    let tokens: Vec<&str> = text.split_whitespace().collect();
+    let number = |token: &str| {
+        token
+            .parse::<i64>()
+            .with_context(|| format!("Delete {key}: '{token}' in '{raw}' is not a frame number"))
+    };
+    let (start, end) = match tokens.as_slice() {
+        [] => bail!("Delete {key}: '{raw}' is empty"),
+        [only] => {
+            let (start, end) = match only.split_once(':') {
+                Some((start, end)) => (number(start)?, Some(number(end)?)),
+                None => (number(only)?, None),
+            };
+            (start, end)
+        }
+        [start, end] => (number(start)?, Some(number(end)?)),
+        _ => bail!("Delete {key}: '{raw}' has extra text"),
+    };
+    ensure!(
+        start >= 0 && end.is_none_or(|end| end > start),
+        "Delete {key}: '{raw}' has an invalid range"
+    );
+    Ok(DeleteRange {
+        episodes,
+        start,
+        end,
+    })
+}
+
 fn parse_shift_range(context: &str, raw: &str) -> Result<Range> {
     let tokens: Vec<&str> = raw.split_whitespace().collect();
     let number = |token: &str| {
@@ -1046,7 +1115,7 @@ impl Config {
                     .iter_mut()
                     .find(|t| t.id == key)
                     .with_context(|| format!("Delete references unknown subtitle {key}"))?;
-                track.deletes = value.try_into()?;
+                track.deletes = delete_ranges(&key, &value)?;
             }
             for (key, value) in add_entries {
                 let track = subtitles

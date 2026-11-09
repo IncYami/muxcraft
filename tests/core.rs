@@ -943,7 +943,7 @@ ycbcr-matrix='auto'
 US={default=48,'01'=['2374 72']}
 CR={default=24,'01'=['2374:35004 -1']}
 [subtitles.delete]
-US=[{episodes=['01'],start=72,end=96}]
+US=['72:96@01']
 [subtitles.add]
 CR=[{episodes=['01'],lines=['Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Added line']}]
 [mux]
@@ -981,16 +981,12 @@ CR={name='Crunchyroll',language='en-US'}
     assert_eq!(us.episodes["01"].ranges[0].shift, 72);
     assert_eq!(cr.episodes["01"].ranges[0].shift, -1);
     assert_eq!(cfg.subtitles[0].deletes[0].start, 72);
+    assert_eq!(cfg.subtitles[0].deletes[0].episodes, ["01"]);
     assert_eq!(cfg.subtitles[1].additions[0].lines.len(), 1);
     for invalid in [
-        input.replace(
-            "US=[{episodes=['01'],start=72,end=96}]",
-            "US=[{start=96,end=72}]",
-        ),
-        input.replace(
-            "US=[{episodes=['01'],start=72,end=96}]",
-            "BAD=[{start=72}]",
-        ),
+        input.replace("US=['72:96@01']", "US=['96:72']"),
+        input.replace("US=['72:96@01']", "BAD=['72']"),
+        input.replace("US=['72:96@01']", "US=['72:96@']"),
         input.replace(
             "CR=[{episodes=['01'],lines=['Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Added line']}]",
             "BAD=[{lines=['x']}]",

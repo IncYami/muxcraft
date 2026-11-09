@@ -173,7 +173,7 @@ Episode `01` inherits the other batch tracks and settings. `false` disables that
 
 Timing uses rational CFR FPS and centisecond-centered ASS frame boundaries, following Aegisub. SRT keeps milliseconds when no shift is applied; shifts use the same frame centering. If a shift would move either boundary before zero, both boundaries are set to zero and the line is retained. There is no out-of-bounds setting.
 
-`[subtitles.delete]` removes lines whose starting frame is in the specified half-open range **after shifting**. `[subtitles.add]` inserts complete ASS Dialogue lines or SRT blocks at their final timestamps. Operations run in the fixed order shift, delete, add. Each subtitle ID maps to a list; `episodes` limits an item to those episodes and may be omitted to apply it to all episodes:
+`[subtitles.delete]` removes lines whose starting frame is in the specified half-open range **after shifting**. `[subtitles.add]` inserts complete ASS Dialogue lines or SRT blocks at their final timestamps. Operations run in the fixed order shift, delete, add. Each delete item is a string with the form `'start:end@episodes'`; omit `end` to extend the range to the end, and omit `@episodes` to apply the deletion to all episodes. `[subtitles.add]` keeps the table form:
 
 ```toml
 [subtitles]
@@ -183,7 +183,7 @@ US = '{raw}/US/{ep}.ass'
 US = { default = 24, 01 = ['2374:18628 72', '20000 -24'] }
 
 [subtitles.delete]
-US = [{ episodes = ['01'], start = 50000 }]
+US = ['50000@01']
 
 [subtitles.add]
 US = [{ episodes = ['01'], lines = [
