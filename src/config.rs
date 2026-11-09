@@ -51,7 +51,7 @@ pub struct Config {
 #[serde(deny_unknown_fields)]
 struct RawConfig {
     project: Project,
-    #[serde(default)]
+    #[serde(default, rename = "env")]
     vars: BTreeMap<String, Variable>,
     #[serde(default)]
     tools: Tools,
@@ -1351,9 +1351,8 @@ impl Config {
             let out_dir = absolute(base, &expand(&self.project.out_dir, &vars)?);
             let name = expand(&self.project.output, &vars)?;
             ensure!(
-                Path::new(&name).file_name().and_then(|x| x.to_str()) == Some(name.as_str())
-                    && name.ends_with(".mkv"),
-                "output must be an .mkv filename without directories: {name}"
+                Path::new(&name).file_name().and_then(|x| x.to_str()) == Some(name.as_str()),
+                "output must be a filename without directories: {name}"
             );
             let output = out_dir.join(name);
             ensure!(

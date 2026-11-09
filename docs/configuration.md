@@ -13,7 +13,7 @@ Templates that pass `--mode plan --no-check` are in [configs](configs/): [simple
 | `[project].show` | string | required | Show name; available as `{show}`. |
 | `[project].out-dir` | path string | required | Output directory, relative to config directory when not absolute. |
 | `[project].work-dir` | path string | required | Work directory; one subdirectory per episode ID. |
-| `[project].output` | string | `'{show}.{ep}.mkv'` | Output filename template. Must resolve to a basename ending in `.mkv`. |
+| `[project].output` | string | `'{show}.{ep}.mkv'` | Output filename template. Must resolve to a file basename with no directories. MKVToolNix writes the given name verbatim; extend the name with the wanted extension, such as `.mkv`. |
 | `[project].title` | string | empty | Container title template. |
 | `[project].fps` | string | `'24000/1001'` | Positive rational CFR rate accepted by the FPS parser. |
 | `[project].clean-work` | boolean | `false` | Remove an episode work directory after successful output. |
@@ -22,7 +22,7 @@ Templates that pass `--mode plan --no-check` are in [configs](configs/): [simple
 | `[tools].ffprobe` | string | `'ffprobe'` | ffprobe executable. |
 | `[tools].flac` | string | `'flac'` | FLAC encoder executable. |
 | `[tools].mkvmerge` | string | `'mkvmerge'` | MKVToolNix muxer executable. |
-| `[vars]` | string or table | empty | String values are global variables. `{ from = 'ep', offset = N, pad = N }` derives a padded numeric episode value; `from` must be `ep`, pad 1–10, and each result positive. A nested `[vars.NAME]` groups a string value to episode IDs. Reserved names: `config_dir`, `show`, `ep`, `episodes`, `source`. |
+| `[env]` | string or table | empty | String values are global variables. `{ from = 'ep', offset = N, pad = N }` derives a padded numeric episode value; `from` must be `ep`, pad 1–10, and each result positive. A nested `[env.NAME]` groups a string value to episode IDs. Reserved names: `config_dir`, `show`, `ep`, `episodes`, `source`. |
 | `[episodes]` | string, string array, or table | required | Ordered episode map. IDs contain ASCII letters/digits, `-`, `_`; IDs must be unique. A string is one source; an array is ordered clips to join. A table requires `source`, `start-chapter`, and optional `end-chapter` to cut an M2TS at one-based chapter boundaries; end is exclusive. A `.toml` string names an episode overlay file. At least one episode is required. |
 | `[chapters]` | string, string array, or table array | automatic for joined BDMV clips | Per-episode chapters: file path (`.txt`/`.xml`), names array (BDMV playlist times), or `{ frame, name }` entries. Referenced episode IDs must exist. Use either configured chapters or `chapters = true` on a video track, not both. |
 | `mux-args` | string array | empty | Additional global mkvmerge arguments, each as one argument. |

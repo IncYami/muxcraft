@@ -1047,6 +1047,33 @@ CR={name='Crunchyroll',language='en-US'}
 }
 
 #[test]
+fn output_keeps_the_configured_extension_and_rejects_directories() {
+    let dir = tempfile::tempdir().unwrap();
+    let build = |dir: &tempfile::TempDir, output: &str| {
+        let source = format!(
+            "[project]\nshow='Test'\nout-dir='out'\nwork-dir='work'\noutput='{output}'\n[episodes]\n'01'='source.mkv'\n[VideoTrack.01]\nsource='{{episodes}}'\n[mux]\n'VideoTrack.01'={{name='Video',language='ja-JP'}}\n"
+        );
+        let path = dir.path().join("batch.toml");
+        std::fs::write(&path, source).unwrap();
+        path
+    };
+    let path = build(&dir, "Show.01");
+    let cfg = Config::load(&path).unwrap();
+    let plan = cfg.plan(dir.path(), false).unwrap();
+    assert_eq!(
+        plan[0].output.file_name().unwrap().to_str(),
+        Some("Show.01")
+    );
+
+    let path = build(&dir, "sub/out.mkv");
+    let err = Config::load(&path)
+        .unwrap()
+        .plan(dir.path(), false)
+        .unwrap_err();
+    assert!(err.to_string().contains("without directories"));
+}
+
+#[test]
 fn pgs_tracks_have_their_own_section_and_unique_ids() {
     let dir = tempfile::tempdir().unwrap();
     let source = "[project]\nshow='Test'\nout-dir='out'\nwork-dir='work'\n[episodes]\n'01'='source.mkv'\n[VideoTrack.01]\nsource='{episodes}'\n[subtitles]\nUS='US.ass'\n[pgs]\nPGS='{episodes}'\nPGS2={source='subtitles.mks',track=1,only=['01']}\n[mux]\n'VideoTrack.01'={name='Video',language='ja-JP'}\nUS={name='US',language='en-US'}\nPGS={name='PGS',language='ja-JP'}\nPGS2={name='Second PGS',language='ja-JP'}\n";
@@ -1072,7 +1099,7 @@ fn episode_maps_preserve_order_and_resolve_grouped_variables() {
 show='Test'
 out-dir='out'
 work-dir='work'
-[vars]
+[env]
 DISC_ID={ 'Disc A'=['1','10'], 'Disc B'=['2','3'] }
 [episodes]
 '1'='one.mkv'
@@ -1120,7 +1147,7 @@ source='{episodes}'
         input.replace("[VideoTrack.01]", "[video]"),
         input.replace("[VideoTrack.01]", "[VideoTrack.01]\nid='video'"),
         input.replace("[VideoTrack.01]", "[VideoTrack.01]\nname='BD'"),
-        input.replace("[vars]", "[vars]\nsource='old'"),
+        input.replace("[env]", "[env]\nsource='old'"),
         format!("{input}\n[[audio]]\nid='audio'\nsource='one.mkv'\n"),
         format!("{input}\n[shifts.OLD]\ndefault={{ shift=24 }}\n"),
         input.replace(
@@ -1162,7 +1189,7 @@ show='Test'
 out-dir='out'
 work-dir='work'
 title='Episode {season_episode}'
-[vars]
+[env]
 season_episode={from='ep',offset=-28,pad=2}
 [episodes]
 '29'='29.mkv'

@@ -1,6 +1,6 @@
 [package]
 name = "muxcraft"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 description = "Auditable batch remuxing driven by TOML"
 license = "MPL-2.0"

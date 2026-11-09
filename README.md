@@ -72,7 +72,7 @@ The local `examples/` directory contains sample configurations but is excluded f
 
 Use single-quoted strings by default; they preserve backslashes literally. Use double quotes only when TOML escape sequences are needed. TOML bare keys are suitable for numeric episode IDs: write `01` in `[episodes]`, `[chapters]`, and per-episode correction tables. These keys remain strings, including the leading zero. Episode IDs written as values are strings, for example `episodes = ['01']`. Quote dotted keys such as `'VideoTrack.01'` inside `[mux]`, and quote any key containing spaces.
 
-Relative paths start at the TOML directory. `{config_dir}`, `{show}`, `{ep}`, and `{episodes}` expand to the config directory, show, current episode ID, and resolved episode source. A string in `[vars]` applies to every episode. A grouped table such as `[vars.DISC_ID]` assigns values to episode IDs; references must exist and appear once. Variable references may refer to other variables; unknown and circular references are errors.
+Relative paths start at the TOML directory. `{config_dir}`, `{show}`, `{ep}`, and `{episodes}` expand to the config directory, show, current episode ID, and resolved episode source. A string in `[env]` applies to every episode. A grouped table such as `[env.DISC_ID]` assigns values to episode IDs; references must exist and appear once. Variable references may refer to other variables; unknown and circular references are errors.
 
 ## Quick configuration example
 
