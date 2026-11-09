@@ -247,58 +247,85 @@ impl Default for TruncateVideo {
 #[serde(untagged)]
 enum SubtitleShift {
     Frames(i64),
+    Single(String),
+    Multi(Vec<String>),
     Table(toml::Table),
 }
 
-#[derive(Debug, Deserialize, Clone)]
-#[serde(untagged)]
-enum SubtitleShiftValue {
-    Frames(i64),
-    Correction(SubtitleShiftEpisode),
+// [subtitles.shift] values accept a frame count or 'start:end frames' strings.
+// Range strings inherit the batch `default` shift outside their ranges (`baseline`).
+// A single nonnumeric token is a range and needs a colon or a shift.
+fn shift_correction(
+    key: &str,
+    episode: Option<&str>,
+    value: &toml::Value,
+    baseline: i64,
+) -> Result<Correction> {
+    let context = match episode {
+        Some(episode) => format!("Shift {key} for episode {episode}"),
+        None => format!("Shift {key} default"),
+    };
+    let raws: Vec<&str> = match value {
+        toml::Value::Integer(frames) => {
+            return Ok(Correction {
+                shift: *frames,
+                ranges: Vec::new(),
+            });
+        }
+        toml::Value::String(raw) => vec![raw.as_str()],
+        toml::Value::Array(entries) => entries
+            .iter()
+            .map(|entry| {
+                entry
+                    .as_str()
+                    .with_context(|| format!("{context} must contain strings, found {entry}"))
+            })
+            .collect::<Result<Vec<_>>>()?,
+        _ => bail!("{context} must be a number or 'start:end frames' string(s)"),
+    };
+    ensure!(!raws.is_empty(), "{context} has no ranges");
+    let mut correction = Correction {
+        shift: baseline,
+        ranges: Vec::new(),
+    };
+    if let [raw] = raws.as_slice()
+        && let Ok(frames) = raw.trim().parse::<i64>()
+    {
+        correction.shift = frames;
+        correction.ranges.clear();
+        return Ok(correction);
+    }
+    correction.ranges = raws
+        .iter()
+        .map(|raw| parse_shift_range(&context, raw))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(correction)
 }
 
-#[derive(Debug, Deserialize, Default, Clone)]
-#[serde(default, deny_unknown_fields)]
-struct SubtitleShiftEpisode {
-    frames: i64,
-    ranges: Vec<SubtitleShiftRange>,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-#[serde(deny_unknown_fields)]
-struct SubtitleShiftRange {
-    start: i64,
-    end: Option<i64>,
-    frames: i64,
-}
-
-impl From<SubtitleShiftEpisode> for Correction {
-    fn from(value: SubtitleShiftEpisode) -> Self {
-        Self {
-            shift: value.frames,
-            ranges: value.ranges.into_iter().map(Into::into).collect(),
+fn parse_shift_range(context: &str, raw: &str) -> Result<Range> {
+    let tokens: Vec<&str> = raw.split_whitespace().collect();
+    let number = |token: &str| {
+        token
+            .parse::<i64>()
+            .with_context(|| format!("{context}: '{token}' in '{raw}' is not a frame number"))
+    };
+    let (head, shift) = match tokens.as_slice() {
+        [] => bail!("{context}: '{raw}' is empty"),
+        [head] => {
+            ensure!(
+                head.contains(':'),
+                "{context}: '{raw}' must be a number or a 'start:end' range"
+            );
+            (*head, 0)
         }
-    }
-}
-impl From<SubtitleShiftValue> for Correction {
-    fn from(value: SubtitleShiftValue) -> Self {
-        match value {
-            SubtitleShiftValue::Frames(frames) => Self {
-                shift: frames,
-                ..Self::default()
-            },
-            SubtitleShiftValue::Correction(correction) => correction.into(),
-        }
-    }
-}
-impl From<SubtitleShiftRange> for Range {
-    fn from(value: SubtitleShiftRange) -> Self {
-        Self {
-            start: value.start,
-            end: value.end,
-            shift: value.frames,
-        }
-    }
+        [head, shift] => (*head, number(shift)?),
+        _ => bail!("{context}: '{raw}' has extra text"),
+    };
+    let (start, end) = match head.split_once(':') {
+        Some((start, end)) => (number(start)?, Some(number(end)?)),
+        None => (number(head)?, None),
+    };
+    Ok(Range { start, end, shift })
 }
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
@@ -974,20 +1001,32 @@ impl Config {
                     .with_context(|| format!("Shift references unknown subtitle {key}"))?;
                 match value.try_into::<SubtitleShift>()? {
                     SubtitleShift::Frames(frames) => track.shift_frames = frames,
+                    SubtitleShift::Single(raw) => {
+                        let value = toml::Value::Array(vec![toml::Value::String(raw)]);
+                        track.shift_table = Some(ShiftTable {
+                            default: shift_correction(&key, None, &value, 0)?,
+                            episodes: BTreeMap::new(),
+                        });
+                    }
+                    SubtitleShift::Multi(raws) => {
+                        let value =
+                            toml::Value::Array(raws.into_iter().map(toml::Value::String).collect());
+                        track.shift_table = Some(ShiftTable {
+                            default: shift_correction(&key, None, &value, 0)?,
+                            episodes: BTreeMap::new(),
+                        });
+                    }
                     SubtitleShift::Table(mut table) => {
-                        if table.contains_key("frames") || table.contains_key("ranges") {
-                            let correction: SubtitleShiftEpisode =
-                                toml::Value::Table(table).try_into()?;
-                            track.shift_table = Some(ShiftTable {
-                                default: correction.into(),
-                                episodes: BTreeMap::new(),
-                            });
-                            continue;
+                        for removed in ["frames", "ranges"] {
+                            ensure!(
+                                !table.contains_key(removed),
+                                "Shift {key} no longer uses '{removed}' tables; use 'start:end frames' strings"
+                            );
                         }
-                        let default: SubtitleShiftValue = table
-                            .remove("default")
-                            .with_context(|| format!("Shift {key} needs a default value"))?
-                            .try_into()?;
+                        let default = match table.remove("default") {
+                            Some(value) => shift_correction(&key, None, &value, 0)?,
+                            None => Correction::default(),
+                        };
                         let episodes = table
                             .into_iter()
                             .map(|(episode, value)| {
@@ -995,14 +1034,16 @@ impl Config {
                                     ids.contains(&episode),
                                     "Shift {key} references unknown episode {episode}"
                                 );
-                                let correction: SubtitleShiftValue = value.try_into()?;
-                                Ok((episode, correction.into()))
+                                let correction = shift_correction(
+                                    &key,
+                                    Some(episode.as_str()),
+                                    &value,
+                                    default.shift,
+                                )?;
+                                Ok((episode, correction))
                             })
                             .collect::<Result<BTreeMap<_, _>>>()?;
-                        track.shift_table = Some(ShiftTable {
-                            default: default.into(),
-                            episodes,
-                        });
+                        track.shift_table = Some(ShiftTable { default, episodes });
                     }
                 }
             }

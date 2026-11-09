@@ -169,7 +169,7 @@ Episode `01` inherits the other batch tracks and settings. `false` disables that
 
 ### Subtitle timing and edits
 
-`[subtitles.shift]` maps each subtitle ID to a frame count or a correction table. A batch-wide correction can use `default` and episode IDs as bare numeric keys, such as `US = { default = 24, 01 = 0 }`; an episode value replaces the default. In an episode config file, use a direct correction such as `US = { frames = 24, ranges = [{ start = 2374, end = 18628, frames = 72 }] }` without nesting it under the episode ID. Shift ranges are half-open `[start, end)` and use the starting frame before correction; omitting `end` extends to the end. Overlapping range shifts add together. Unknown episode IDs are errors.
+`[subtitles.shift]` maps each subtitle ID to a frame count or a list of range strings. A batch-wide correction can use `default` and episode IDs as bare numeric keys, such as `US = { default = 24, 01 = 0 }`. `default` is optional; without it, the default shift is `0`. Each episode value is a number or range strings. A number replaces the default. Range strings inherit the default outside their ranges. In an episode config file, set the entry directly, such as `US = ['2374:18628 72']`, without nesting it under the episode ID. Each range string has the form `'START:END SHIFT'`. Omit `SHIFT` to use `0`. Omit `END` to extend to the end. A lone number string is a whole-track shift. Shift ranges are half-open `[start, end)` and use the starting frame before correction. Overlapping range shifts add together. Unknown episode IDs are errors.
 
 Timing uses rational CFR FPS and centisecond-centered ASS frame boundaries, following Aegisub. SRT keeps milliseconds when no shift is applied; shifts use the same frame centering. If a shift would move either boundary before zero, both boundaries are set to zero and the line is retained. There is no out-of-bounds setting.
 
@@ -180,7 +180,7 @@ Timing uses rational CFR FPS and centisecond-centered ASS frame boundaries, foll
 US = '{raw}/US/{ep}.ass'
 
 [subtitles.shift]
-US = { default = 24, 01 = { frames = 24, ranges = [{ start = 2374, end = 18628, frames = 72 }] } }
+US = { default = 24, 01 = ['2374:18628 72', '20000 -24'] }
 
 [subtitles.delete]
 US = [{ episodes = ['01'], start = 50000 }]

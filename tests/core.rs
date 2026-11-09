@@ -111,7 +111,7 @@ fn episode_config_inherits_and_overrides_only_its_episode() {
 US = 'replacement.ass'
 CR12 = false
 [subtitles.shift]
-US = { frames = 0, ranges = [{ start = 1, end = 10, frames = 2 }] }
+US = ['1:10 2']
 [VideoTrack]
 02 = false
 [AudioTrack]
@@ -940,8 +940,8 @@ CR='cr.ass'
 clean-garbage=true
 ycbcr-matrix='auto'
 [subtitles.shift]
-US={default=24,'01'={frames=48,ranges=[{start=2374,frames=72}]}}
-CR={default=24,'01'={frames=48,ranges=[{start=2374,frames=72}]}}
+US={default=48,'01'=['2374 72']}
+CR={default=24,'01'=['2374:35004 -1']}
 [subtitles.delete]
 US=[{episodes=['01'],start=72,end=96}]
 [subtitles.add]
@@ -978,7 +978,8 @@ CR={name='Crunchyroll',language='en-US'}
     let us = cfg.subtitles[0].shift_table.as_ref().unwrap();
     let cr = cfg.subtitles[1].shift_table.as_ref().unwrap();
     assert_eq!(us.episodes["01"].shift, 48);
-    assert_eq!(cr.episodes["01"].ranges[0].shift, 72);
+    assert_eq!(us.episodes["01"].ranges[0].shift, 72);
+    assert_eq!(cr.episodes["01"].ranges[0].shift, -1);
     assert_eq!(cfg.subtitles[0].deletes[0].start, 72);
     assert_eq!(cfg.subtitles[1].additions[0].lines.len(), 1);
     for invalid in [
@@ -996,24 +997,32 @@ CR={name='Crunchyroll',language='en-US'}
         ),
         input.replace("US='us.ass'", "US={source='us.ass',patches=[]}"),
         input.replace(
-            "US={default=24,'01'={frames=48,ranges=[{start=2374,frames=72}]}}",
+            "US={default=48,'01'=['2374 72']}",
             "US={default={frames=24,delete=[{start=72}]},'01'=48}",
         ),
         input.replace(
-            "US={default=24,'01'={frames=48,ranges=[{start=2374,frames=72}]}}",
-            "US={default=24,out_of_bounds='drop_line','01'=48}",
+            "US={default=48,'01'=['2374 72']}",
+            "US={default=48,out_of_bounds='drop_line','01'=48}",
         ),
         input.replace(
-            "CR={default=24,'01'={frames=48,ranges=[{start=2374,frames=72}]}}",
+            "CR={default=24,'01'=['2374:35004 -1']}",
             "CR='US'",
         ),
         input.replace(
-            "CR={default=24,'01'={frames=48,ranges=[{start=2374,frames=72}]}}",
+            "CR={default=24,'01'=['2374:35004 -1']}",
             "CR={default=24,'99'=48}",
         ),
         input.replace(
-            "CR={default=24,'01'={frames=48,ranges=[{start=2374,frames=72}]}}",
-            "CR={'01'=48}",
+            "CR={default=24,'01'=['2374:35004 -1']}",
+            "CR=['14 -1 x']",
+        ),
+        input.replace(
+            "CR={default=24,'01'=['2374:35004 -1']}",
+            "CR='14:2:3'",
+        ),
+        input.replace(
+            "CR={default=24,'01'=['2374:35004 -1']}",
+            "CR=[]",
         ),
         input.replace("'VideoTrack.02'={name='Alternate',language='ja-JP'}\n", ""),
         input.replace("[VideoTrack.02]", "[VideoTrack.bad]"),
