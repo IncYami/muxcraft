@@ -112,7 +112,7 @@ struct RawVideo {
     subtitles: bool,
     #[serde(default)]
     attachments: bool,
-    #[serde(default)]
+    #[serde(default, rename = "global-tags")]
     global_tags: bool,
     #[serde(default)]
     chapters: bool,
@@ -207,9 +207,9 @@ struct MuxSettings {
     default: bool,
     #[serde(default)]
     forced: bool,
-    #[serde(default)]
+    #[serde(default, rename = "hearing-impaired")]
     hearing_impaired: bool,
-    #[serde(default)]
+    #[serde(default, rename = "delay")]
     delay_ms: i64,
     #[serde(default)]
     tags: BTreeMap<String, String>,
@@ -220,6 +220,7 @@ struct MuxSettings {
 pub(crate) struct SubtitleProcessing {
     pub(crate) clean_garbage: bool,
     pub(crate) clean_extradata: bool,
+    #[serde(rename = "ycbcr-matrix")]
     pub(crate) ycbcr_matrix: Option<String>,
     pub(crate) truncate_video: Option<TruncateVideo>,
 }
@@ -314,7 +315,9 @@ struct DerivedVariable {
 #[serde(deny_unknown_fields)]
 pub struct Project {
     pub show: String,
+    #[serde(rename = "out-dir")]
     pub out_dir: String,
+    #[serde(rename = "work-dir")]
     pub work_dir: String,
     #[serde(default = "output")]
     pub output: String,
@@ -322,9 +325,9 @@ pub struct Project {
     pub title: String,
     #[serde(default = "fps")]
     pub fps: String,
-    #[serde(default)]
+    #[serde(default, rename = "clean-work")]
     pub clean_work_dirs: bool,
-    #[serde(default)]
+    #[serde(default, rename = "continue-on-error")]
     pub continue_on_error: bool,
 }
 #[derive(Debug, Deserialize, Serialize, Clone)]

@@ -1,7 +1,7 @@
 [project]
 show = 'Example Series'
-out_dir = 'output'
-work_dir = 'work'
+out-dir = 'output'
+work-dir = 'work'
 output = '{show}.{ep}.mkv'
 
 [episodes]
@@ -18,4 +18,4 @@ SDH = 'subtitles/sdh.srt'
 [mux]
 'VideoTrack.01' = { name = 'Video', language = 'en-US', default = true }
 US = { name = 'English', language = 'en-US', default = true }
-SDH = { name = 'English SDH', language = 'en-US', hearing_impaired = true }
+SDH = { name = 'English SDH', language = 'en-US', hearing-impaired = true }

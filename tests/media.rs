@@ -91,7 +91,7 @@ fn mux_logs_commands_without_writing_audit_files() {
     let config = dir.path().join("batch.toml");
     std::fs::write(
         &config,
-        "[project]\nshow='NoAudit'\nout_dir='out'\nwork_dir='work'\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01='source.mkv'\n[VideoTrack.01]\nsource='{episodes}'\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\n",
+        "[project]\nshow='NoAudit'\nout-dir='out'\nwork-dir='work'\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01='source.mkv'\n[VideoTrack.01]\nsource='{episodes}'\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\n",
     )
     .unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
@@ -143,7 +143,7 @@ fn webvtt_is_muxed_as_a_webvtt_track() {
     let config = dir.path().join("batch.toml");
     std::fs::write(
         &config,
-        "[project]\nshow='Vtt'\nout_dir='out'\nwork_dir='work'\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01='source.mkv'\n[VideoTrack.01]\nsource='{episodes}'\n[subtitles]\nUS='captions.vtt'\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\nUS={name='English',language='en-US'}\n",
+        "[project]\nshow='Vtt'\nout-dir='out'\nwork-dir='work'\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01='source.mkv'\n[VideoTrack.01]\nsource='{episodes}'\n[subtitles]\nUS='captions.vtt'\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\nUS={name='English',language='en-US'}\n",
     )
     .unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
@@ -269,7 +269,7 @@ fn copy_and_flac_keep_source_audio_start_offset() {
             source.to_str().unwrap(),
         ],
     );
-    let config = "[project]\nshow='Sync'\nout_dir='out'\nwork_dir='work'\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01='source.mkv'\n[VideoTrack.01]\nsource='{episodes}'\n[AudioTrack.01]\nsource='{episodes}'\ncodec='copy'\n[AudioTrack.02]\nsource='{episodes}'\ncodec='flac'\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\n'AudioTrack.01'={name='Copy',language='ja'}\n'AudioTrack.02'={name='FLAC',language='ja',delay_ms=100}\n";
+    let config = "[project]\nshow='Sync'\nout-dir='out'\nwork-dir='work'\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01='source.mkv'\n[VideoTrack.01]\nsource='{episodes}'\n[AudioTrack.01]\nsource='{episodes}'\ncodec='copy'\n[AudioTrack.02]\nsource='{episodes}'\ncodec='flac'\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\n'AudioTrack.01'={name='Copy',language='ja'}\n'AudioTrack.02'={name='FLAC',language='ja',delay=100}\n";
     let config_path = base.join("batch.toml");
     std::fs::write(&config_path, config).unwrap();
     let run = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
@@ -352,7 +352,7 @@ fn flac_keeps_32_bit_integer_pcm() {
             source.to_str().unwrap(),
         ],
     );
-    let config = "[project]\nshow='Depth'\nout_dir='out'\nwork_dir='work'\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01='source.mkv'\n[VideoTrack.01]\nsource='{episodes}'\n[AudioTrack.01]\nsource='{episodes}'\ncodec='flac'\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\n'AudioTrack.01'={name='FLAC',language='ja'}\n";
+    let config = "[project]\nshow='Depth'\nout-dir='out'\nwork-dir='work'\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01='source.mkv'\n[VideoTrack.01]\nsource='{episodes}'\n[AudioTrack.01]\nsource='{episodes}'\ncodec='flac'\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\n'AudioTrack.01'={name='FLAC',language='ja'}\n";
     let config_path = base.join("batch.toml");
     std::fs::write(&config_path, config).unwrap();
     let run = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
@@ -432,7 +432,7 @@ fn tmdb_failure_stops_before_creating_work_files() {
             source.to_str().unwrap(),
         ],
     );
-    let config = "[project]\nshow='Metadata'\nout_dir='out'\nwork_dir='work'\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01='source.mkv'\n[VideoTrack.01]\nsource='{episodes}'\n[tmdb]\nid=1\noffset=-1\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\n";
+    let config = "[project]\nshow='Metadata'\nout-dir='out'\nwork-dir='work'\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01='source.mkv'\n[VideoTrack.01]\nsource='{episodes}'\n[tmdb]\nid=1\noffset=-1\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\n";
     let config_path = base.join("batch.toml");
     std::fs::write(&config_path, config).unwrap();
     let run = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
@@ -482,7 +482,7 @@ fn failed_mux_and_invalid_output_remove_hidden_partial() {
         permissions.set_mode(0o755);
         std::fs::set_permissions(&wrapper, permissions).unwrap();
         let config = format!(
-            "[project]\nshow='Publish'\nout_dir='out'\nwork_dir='work'\nfps='24'\n[tools]\nmkvmerge='{}'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01='source.mkv'\n[VideoTrack.01]\nsource='{{episodes}}'\n[mux]\n'VideoTrack.01'={{name='Video',language='ja'}}\n",
+            "[project]\nshow='Publish'\nout-dir='out'\nwork-dir='work'\nfps='24'\n[tools]\nmkvmerge='{}'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01='source.mkv'\n[VideoTrack.01]\nsource='{{episodes}}'\n[mux]\n'VideoTrack.01'={{name='Video',language='ja'}}\n",
             wrapper.display()
         );
         let config_path = base.join("batch.toml");
@@ -609,7 +609,7 @@ fn cuts_shared_m2ts_and_verifies_extracted_tracks() {
         put32(&mut mpls, p + 4, *tick);
     }
     std::fs::write(bdmv.join("PLAYLIST/00001.mpls"), mpls).unwrap();
-    let config = "[project]\nshow='Split'\nout_dir='out'\nwork_dir=\"work [one|two]'s\"\nclean_work_dirs=false\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01={source='BDMV/STREAM/00001.m2ts',start_chapter=1,end_chapter=2}\n02={source='BDMV/STREAM/00001.m2ts',start_chapter=2}\n[chapters]\n01=[]\n02=[]\n[VideoTrack.01]\nsource='{episodes}'\n[AudioTrack.01]\nsource='{episodes}'\ncodec='flac'\n[AudioTrack.02]\nsource='{episodes}'\ntrack=1\ncodec='flac'\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\n'AudioTrack.01'={name='Audio',language='ja'}\n'AudioTrack.02'={name='Audio 2',language='ja'}\n";
+    let config = "[project]\nshow='Split'\nout-dir='out'\nwork-dir=\"work [one|two]'s\"\nclean-work=false\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n01={source='BDMV/STREAM/00001.m2ts',start_chapter=1,end_chapter=2}\n02={source='BDMV/STREAM/00001.m2ts',start_chapter=2}\n[chapters]\n01=[]\n02=[]\n[VideoTrack.01]\nsource='{episodes}'\n[AudioTrack.01]\nsource='{episodes}'\ncodec='flac'\n[AudioTrack.02]\nsource='{episodes}'\ntrack=1\ncodec='flac'\n[mux]\n'VideoTrack.01'={name='Video',language='ja'}\n'AudioTrack.01'={name='Audio',language='ja'}\n'AudioTrack.02'={name='Audio 2',language='ja'}\n";
     let config_path = base.join("batch.toml");
     std::fs::write(&config_path, config).unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_muxcraft"))
@@ -835,7 +835,7 @@ fn joins_m2ts_clips_before_extracting_audio() {
     }
     put16(&mut mpls, marks_offset + 4, 2);
     std::fs::write(playlist.join("00001.mpls"), mpls).unwrap();
-    let config = "[project]\nshow='Joined'\nout_dir='out'\nwork_dir='work'\nclean_work_dirs=false\n[subtitles.fonts]\nenabled=false\n[episodes]\n01=['BDMV/STREAM/00001.m2ts','BDMV/STREAM/00002.m2ts']\n[VideoTrack.01]\nsource='{episodes}'\n[AudioTrack.01]\nsource='{episodes}'\ncodec='flac'\n[mux]\n'VideoTrack.01'={name='Video',language='ja-JP'}\n'AudioTrack.01'={name='Audio',language='ja-JP'}\n";
+    let config = "[project]\nshow='Joined'\nout-dir='out'\nwork-dir='work'\nclean-work=false\n[subtitles.fonts]\nenabled=false\n[episodes]\n01=['BDMV/STREAM/00001.m2ts','BDMV/STREAM/00002.m2ts']\n[VideoTrack.01]\nsource='{episodes}'\n[AudioTrack.01]\nsource='{episodes}'\ncodec='flac'\n[mux]\n'VideoTrack.01'={name='Video',language='ja-JP'}\n'AudioTrack.01'={name='Audio',language='ja-JP'}\n";
     let config_path = base.join("batch.toml");
     std::fs::write(&config_path, config).unwrap();
     let mut run_log = String::new();
@@ -950,7 +950,7 @@ fn bdmv_chapters_use_video_duration_for_terminal_mark_and_cli() {
         mpls[position + 4..position + 8].copy_from_slice(&(45000 * second).to_be_bytes());
     }
     std::fs::write(playlist.join("00001.mpls"), mpls).unwrap();
-    let config = "[project]\nshow='ChapterTest'\nout_dir='out'\nwork_dir='work'\nclean_work_dirs=false\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n'01'='BDMV/STREAM/00001.m2ts'\n[chapters]\n'01'=['First','Middle','Tail']\n[VideoTrack.01]\nsource='{episodes}'\n[mux]\n'VideoTrack.01'={name='Video',language='ja-JP'}\n";
+    let config = "[project]\nshow='ChapterTest'\nout-dir='out'\nwork-dir='work'\nclean-work=false\nfps='24'\n[subtitles.fonts]\nenabled=false\n[episodes]\n'01'='BDMV/STREAM/00001.m2ts'\n[chapters]\n'01'=['First','Middle','Tail']\n[VideoTrack.01]\nsource='{episodes}'\n[mux]\n'VideoTrack.01'={name='Video',language='ja-JP'}\n";
     let config_path = base.join("batch.toml");
     std::fs::write(&config_path, config).unwrap();
     let mut run_log = String::new();
@@ -1062,11 +1062,11 @@ fn real_batch_flac_copy_subtitles_chapters_flags_and_cli() {
     let config = r#"
 [project]
 show='Test'
-out_dir='out'
-work_dir='work'
+out-dir='out'
+work-dir='work'
 output='{show}.{ep}.mkv'
 title='{show} - {ep}'
-clean_work_dirs=true
+clean-work=true
 [subtitles.fonts]
 enabled=false
 [episodes]
@@ -1107,7 +1107,7 @@ pgs_alt={source='pgs.mks',track=1}
 'AudioTrack.03'={name='TrueHD',language='ja-JP'}
 'AudioTrack.04'={name='TrueHD to FLAC',language='ja-JP'}
 styled={name='Styled',language='pt-BR',default=true,tags={SubtitleVersion='BluRay'}}
-srt={name='SDH',language='en-US',hearing_impaired=true,forced=true}
+srt={name='SDH',language='en-US',hearing-impaired=true,forced=true}
 pgs={name='PGS',language='ja-JP'}
 pgs_alt={name='Second PGS',language='ja-JP'}
 "#;
@@ -1295,15 +1295,15 @@ fn episode_config_is_used_for_mux_and_cli() {
     std::fs::create_dir(base.join("episodes")).unwrap();
     std::fs::write(
         base.join("episodes/01.toml"),
-        "[episodes]\n01='source.mkv'\n[subtitles]\nUS='replacement.srt'\nCR12=false\n[subtitles.processing]\nclean_garbage=false\nycbcr_matrix='PC.709'\n",
+        "[episodes]\n01='source.mkv'\n[subtitles]\nUS='replacement.srt'\nCR12=false\n[subtitles.processing]\nclean_garbage=false\nycbcr-matrix='PC.709'\n",
     )
     .unwrap();
     let config = r#"
 [project]
 show='EpisodeConfig'
-out_dir='out'
-work_dir='work'
-clean_work_dirs=false
+out-dir='out'
+work-dir='work'
+clean-work=false
 fps='24'
 [episodes]
 01='episodes/01.toml'
@@ -1318,7 +1318,7 @@ Styled='styled.ass'
 enabled=false
 [subtitles.processing]
 clean_garbage=true
-ycbcr_matrix='TV.709'
+ycbcr-matrix='TV.709'
 [mux]
 'VideoTrack.01'={name='Video',language='und'}
 US={name='US',language='en'}
@@ -1456,7 +1456,7 @@ fn video_source_can_keep_audio_subtitles_attachments_and_set_colour() {
             base.join("subtitle.srt").to_str().unwrap(),
         ],
     );
-    let config = "[project]\nshow='Test'\nout_dir='.'\nwork_dir='work'\noutput='output.mkv'\n[subtitles.fonts]\nenabled=false\n[episodes]\n'01'='premux.mkv'\n[VideoTrack.01]\nsource='{episodes}'\naudio=true\nsubtitles=true\nattachments=true\nglobal_tags=true\nchapters=true\ncolour={range=1,primaries=1,transfer=1,matrix=1}\n[mux]\n'VideoTrack.01'={name='BD',language='ja-JP',default=true}\n";
+    let config = "[project]\nshow='Test'\nout-dir='.'\nwork-dir='work'\noutput='output.mkv'\n[subtitles.fonts]\nenabled=false\n[episodes]\n'01'='premux.mkv'\n[VideoTrack.01]\nsource='{episodes}'\naudio=true\nsubtitles=true\nattachments=true\nglobal-tags=true\nchapters=true\ncolour={range=1,primaries=1,transfer=1,matrix=1}\n[mux]\n'VideoTrack.01'={name='BD',language='ja-JP',default=true}\n";
     let config_path = base.join("batch.toml");
     std::fs::write(&config_path, config).unwrap();
     let run = Command::new(env!("CARGO_BIN_EXE_muxcraft"))

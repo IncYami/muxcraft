@@ -372,7 +372,7 @@
 <g id="node24" class="node">
 <title>clean</title>
 <path fill="#fff2cc" stroke="#8297b0" d="M759.6,-324.77C759.6,-324.77 666.15,-301.29 666.15,-301.29 660.33,-299.82 660.33,-296.9 666.15,-295.43 666.15,-295.43 759.6,-271.95 759.6,-271.95 765.42,-270.48 777.06,-270.48 782.88,-271.95 782.88,-271.95 876.33,-295.43 876.33,-295.43 882.15,-296.9 882.15,-299.82 876.33,-301.29 876.33,-301.29 782.88,-324.77 782.88,-324.77 777.06,-326.24 765.42,-326.24 759.6,-324.77"/>
-<text xml:space="preserve" text-anchor="middle" x="771.24" y="-294.66" font-family="DejaVu Sans" font-size="11.00">clean_work_dirs?</text>
+<text xml:space="preserve" text-anchor="middle" x="771.24" y="-294.66" font-family="DejaVu Sans" font-size="11.00">clean-work?</text>
 </g>
 <!-- output&#45;&gt;clean -->
 <g id="edge33" class="edge">

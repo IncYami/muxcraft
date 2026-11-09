@@ -24,7 +24,7 @@ flowchart TD
     TAG --> MX
     MX --> VERIFY["mkvmerge -J: verify output structure; sync temporary MKV"]
     VERIFY --> OUT["Publish final MKV without overwriting"]
-    OUT --> CLEAN{"clean_work_dirs?"}
+    OUT --> CLEAN{"clean-work?"}
     CLEAN -- Yes --> RM["Remove work/EP"]
     CLEAN -- No --> KEEP["Keep intermediate files"]
     RM --> NEXT{"More episodes?"}

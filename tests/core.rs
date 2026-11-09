@@ -126,8 +126,8 @@ PGS = false
         r#"
 [project]
 show = 'Example'
-out_dir = 'out'
-work_dir = 'work'
+out-dir = 'out'
+work-dir = 'work'
 [episodes]
 01 = 'episode-01.toml'
 02 = 'actual-02.m2ts'
@@ -913,8 +913,8 @@ fn numbered_tracks_and_subtitle_settings_are_resolved() {
     let input = r#"
 [project]
 show='Example'
-out_dir='out'
-work_dir='work'
+out-dir='out'
+work-dir='work'
 [episodes]
 '01'='disc.mkv'
 [VideoTrack.01]
@@ -923,7 +923,7 @@ track=0
 audio=true
 subtitles=true
 attachments=true
-global_tags=true
+global-tags=true
 chapters=true
 colour={range=1,primaries=1,transfer=1,matrix=1}
 [VideoTrack.02]
@@ -938,7 +938,7 @@ US='us.ass'
 CR='cr.ass'
 [subtitles.processing]
 clean_garbage=true
-ycbcr_matrix='auto'
+ycbcr-matrix='auto'
 [subtitles.shift]
 US={default=24,'01'={frames=48,ranges=[{start=2374,frames=72}]}}
 CR={default=24,'01'={frames=48,ranges=[{start=2374,frames=72}]}}
@@ -1028,7 +1028,7 @@ CR={name='Crunchyroll',language='en-US'}
         input.replace("range=1", "range=4"),
         input.replace("matrix=1", "matrix='bt709'"),
         input.replace("matrix=1", "matrix=1,unknown=1"),
-        input.replace("global_tags=true", "global_tags='yes'"),
+        input.replace("global-tags=true", "global-tags='yes'"),
         input.replace(
             "[VideoTrack.02]\nsource='alternate.mkv'",
             "[VideoTrack.02]\nsource='alternate.mkv'\nchapters=true",
@@ -1049,7 +1049,7 @@ CR={name='Crunchyroll',language='en-US'}
 #[test]
 fn pgs_tracks_have_their_own_section_and_unique_ids() {
     let dir = tempfile::tempdir().unwrap();
-    let source = "[project]\nshow='Test'\nout_dir='out'\nwork_dir='work'\n[episodes]\n'01'='source.mkv'\n[VideoTrack.01]\nsource='{episodes}'\n[subtitles]\nUS='US.ass'\n[pgs]\nPGS='{episodes}'\nPGS2={source='subtitles.mks',track=1,only=['01']}\n[mux]\n'VideoTrack.01'={name='Video',language='ja-JP'}\nUS={name='US',language='en-US'}\nPGS={name='PGS',language='ja-JP'}\nPGS2={name='Second PGS',language='ja-JP'}\n";
+    let source = "[project]\nshow='Test'\nout-dir='out'\nwork-dir='work'\n[episodes]\n'01'='source.mkv'\n[VideoTrack.01]\nsource='{episodes}'\n[subtitles]\nUS='US.ass'\n[pgs]\nPGS='{episodes}'\nPGS2={source='subtitles.mks',track=1,only=['01']}\n[mux]\n'VideoTrack.01'={name='Video',language='ja-JP'}\nUS={name='US',language='en-US'}\nPGS={name='PGS',language='ja-JP'}\nPGS2={name='Second PGS',language='ja-JP'}\n";
     let path = dir.path().join("batch.toml");
     std::fs::write(&path, source).unwrap();
     let cfg = Config::load(&path).unwrap();
@@ -1070,8 +1070,8 @@ fn episode_maps_preserve_order_and_resolve_grouped_variables() {
     let input = r#"
 [project]
 show='Test'
-out_dir='out'
-work_dir='work'
+out-dir='out'
+work-dir='work'
 [vars]
 DISC_ID={ 'Disc A'=['1','10'], 'Disc B'=['2','3'] }
 [episodes]
@@ -1159,8 +1159,8 @@ fn derived_episode_variable_applies_offset_and_padding() {
     let input = r#"
 [project]
 show='Test'
-out_dir='out'
-work_dir='work'
+out-dir='out'
+work-dir='work'
 title='Episode {season_episode}'
 [vars]
 season_episode={from='ep',offset=-28,pad=2}

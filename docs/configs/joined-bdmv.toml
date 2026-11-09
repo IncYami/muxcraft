@@ -1,7 +1,7 @@
 [project]
 show = 'Example Movie'
-out_dir = 'output'
-work_dir = 'work'
+out-dir = 'output'
+work-dir = 'work'
 output = '{show}.{ep}.mkv'
 
 [episodes]

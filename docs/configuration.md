@@ -11,13 +11,13 @@ Templates that pass `--mode plan --no-check` are in [configs](configs/): [simple
 | Table/key | Type | Default | Meaning and constraints |
 | --- | --- | --- | --- |
 | `[project].show` | string | required | Show name; available as `{show}`. |
-| `[project].out_dir` | path string | required | Output directory, relative to config directory when not absolute. |
-| `[project].work_dir` | path string | required | Work directory; one subdirectory per episode ID. |
+| `[project].out-dir` | path string | required | Output directory, relative to config directory when not absolute. |
+| `[project].work-dir` | path string | required | Work directory; one subdirectory per episode ID. |
 | `[project].output` | string | `'{show}.{ep}.mkv'` | Output filename template. Must resolve to a basename ending in `.mkv`. |
 | `[project].title` | string | empty | Container title template. |
 | `[project].fps` | string | `'24000/1001'` | Positive rational CFR rate accepted by the FPS parser. |
-| `[project].clean_work_dirs` | boolean | `false` | Remove an episode work directory after successful output. |
-| `[project].continue_on_error` | boolean | `false` | Continue after an episode execution failure; batch still exits with an error. |
+| `[project].clean-work` | boolean | `false` | Remove an episode work directory after successful output. |
+| `[project].continue-on-error` | boolean | `false` | Continue after an episode execution failure; batch still exits with an error. |
 | `[tools].ffmpeg` | string | `'ffmpeg'` | FFmpeg executable. |
 | `[tools].ffprobe` | string | `'ffprobe'` | ffprobe executable. |
 | `[tools].flac` | string | `'flac'` | FLAC encoder executable. |
@@ -40,17 +40,17 @@ Every video and audio source has an ID formed from the table suffix, such as `Vi
 | `source` | string | required | Video, audio, subtitle, and PGS sources. Supports variables and a glob that must match exactly one file. `*` and `?` match within one path segment; `**` is unsupported and square brackets are literal. |
 | `track` | nonnegative integer | `0` | Zero-based index within source type. For video/audio it selects that media type; PGS selects PGS streams; subtitle inline source selects text tracks. |
 | `audio`, `subtitles`, `attachments` | boolean | `false` | Video track only: include all source tracks or attachments of that kind. |
-| `global_tags`, `chapters` | boolean | `false` | Video track only: retain source global tags or embedded chapters. |
+| `global-tags`, `chapters` | boolean | `false` | Video track only: retain source global tags or embedded chapters. |
 | `colour` | table | absent | Video metadata fields `range`, `primaries`, `transfer`, `matrix` are optional numeric MKVToolNix codes; at least one must be set. `range` is 0–3. A given field cannot also be supplied in `args`. |
 | `codec` | string | required for audio | `flac` (encode) or `copy` (read the selected track directly from its container). |
 | `args` | string array | `[]` | Per-track mkvmerge arguments, one item per argument. For PGS, applied to the muxed track. |
 | `only`, `except` | string array | `[]` | Video, audio, and PGS only: enable only the listed episodes, or enable all except listed episodes. IDs must exist. |
 | `name`, `language` | string | required | `[mux]` fields: output track name and language/IETF language tag. |
-| `default`, `forced`, `hearing_impaired` | boolean | `false` | `[mux]` track flags. |
-| `delay_ms` | integer | `0` | `[mux]` track delay in milliseconds. |
+| `default`, `forced`, `hearing-impaired` | boolean | `false` | `[mux]` track flags. |
+| `delay` | integer | `0` | `[mux]` track delay in milliseconds. |
 | `tags` | string map | `{}` | `[mux]` extra Matroska track tags. |
 
-Audio `copy` retains the selected source container timing without an intermediate extraction. FLAC extraction uses 16-, 24-, or 32-bit integer PCM according to the source depth. A floating-point decode without a reported integer depth is quantized to 24-bit PCM with a CLI warning. FLAC 1.4 or newer is required for 32-bit PCM. For uncut audio and video from the same file, the measured audio start offset is added to `delay_ms`. For separate files, `delay_ms` alone determines the adjustment. Cut audio keeps its sample-based timing and verification.
+Audio `copy` retains the selected source container timing without an intermediate extraction. FLAC extraction uses 16-, 24-, or 32-bit integer PCM according to the source depth. A floating-point decode without a reported integer depth is quantized to 24-bit PCM with a CLI warning. FLAC 1.4 or newer is required for 32-bit PCM. For uncut audio and video from the same file, the measured audio start offset is added to `delay`. For separate files, `delay` alone determines the adjustment. Cut audio keeps its sample-based timing and verification.
 
 Video sources use `[VideoTrack.N]`; audio uses `[AudioTrack.N]` and requires `codec`. Text subtitles use `[subtitles]` with each ID mapped to a `.ass`, `.srt`, or `.vtt` source string or inline table. File extensions select the parser; WebVTT stays WebVTT in the MKV. PGS uses `[pgs]`, each ID mapped to a container/`.sup` source or inline table. Subtitle and PGS IDs cannot contain dots. Inline text subtitle fields are `source`, `track`, `headers`, and `args`. Set ASS cleaning and YCbCr Matrix once in `[subtitles.processing]`; use an episode overlay to change a subtitle source, disable a subtitle, or change processing for one episode. Inline PGS fields are `source`, `track`, `only`, `except`, and `args`.
 
@@ -72,13 +72,13 @@ US = '{raw}/captions/en-US.vtt'
 
 `[subtitles.fonts]` defaults to enabled font collection with current-directory, subtitle-directory, and system font searches enabled; `dirs` is empty. All fields are optional: `enabled`, `dirs` (string array), `use_system_fonts`, `search_current_dir`, `search_subtitle_dirs`.
 
-`[subtitles.processing]` supports `clean_garbage` (false), `clean_extradata` (false), `ycbcr_matrix` (absent), and `truncate_video` (absent). ASS cleaning and YCbCr Matrix apply only to ASS; WebVTT and SRT use timing operations only. An episode overlay may replace individual settings for that episode. The `truncate_video` table has `trimmed` (true) and `comment` (false). When set, cues starting at or after the video end are removed; crossing cues are clamped when `trimmed = true`, otherwise any cue extending past the end is removed. With `comment = true`, removed ASS dialogue is kept as a timed Comment event; crossing dialogue can also remain as a clamped dialogue. SRT and WebVTT have no timed Comment event. Truncation runs after shifts, deletions, and additions and uses selected video duration; it does not trim video.
+`[subtitles.processing]` supports `clean_garbage` (false), `clean_extradata` (false), `ycbcr-matrix` (absent), and `truncate_video` (absent). ASS cleaning and YCbCr Matrix apply only to ASS; WebVTT and SRT use timing operations only. An episode overlay may replace individual settings for that episode. The `truncate_video` table has `trimmed` (true) and `comment` (false). When set, cues starting at or after the video end are removed; crossing cues are clamped when `trimmed = true`, otherwise any cue extending past the end is removed. With `comment = true`, removed ASS dialogue is kept as a timed Comment event; crossing dialogue can also remain as a clamped dialogue. SRT and WebVTT have no timed Comment event. Truncation runs after shifts, deletions, and additions and uses selected video duration; it does not trim video.
 
 For each subtitle ID, `[subtitles.shift]` accepts an integer frame shift or a correction table. A batch correction table requires `default` and may specify episode IDs as keys; episode corrections replace the default. An episode overlay can provide `{ frames = N, ranges = [...] }` directly. Each range has required `start` (nonnegative frame), optional `end` (exclusive and greater than start), and `frames` (shift, default 0). Shifts use rational CFR frame timing. Overlapping range shifts add.
 
 `[subtitles.delete]` maps IDs to arrays of `{ episodes = [], start, end }`: start is required, nonnegative, `end` optional, and ranges are half-open; omitted episodes applies to all episodes. `[subtitles.add]` maps IDs to arrays of `{ episodes = [], lines }`, where lines is a nonempty string array of complete ASS Dialogue lines, SRT blocks, or WebVTT cue blocks (without the `WEBVTT` header). Edits run in order: shift, delete, add. Added lines use final timestamps. WebVTT processing keeps cue IDs, settings, `STYLE`, `REGION`, and `NOTE` blocks; shift also updates inline cue timestamps. With no timing edits, the VTT file text is kept unchanged.
 
-For inline ASS tracks, `headers` is a string map of ASS headers other than `YCbCr Matrix`. The shared `ycbcr_matrix` accepts `auto`, `None`, `TV.601`, `PC.601`, `TV.709`, `PC.709`, `TV.240M`, `PC.240M`, `TV.FCC`, or `PC.FCC`. Unknown configuration fields are errors.
+For inline ASS tracks, `headers` is a string map of ASS headers other than `YCbCr Matrix`. The shared `ycbcr-matrix` accepts `auto`, `None`, `TV.601`, `PC.601`, `TV.709`, `PC.709`, `TV.240M`, `PC.240M`, `TV.FCC`, or `PC.FCC`. Unknown configuration fields are errors.
 
 ## Episode overlays
 

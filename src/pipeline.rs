@@ -1986,7 +1986,7 @@ fn run_episode(
                             ));
                         } else {
                             crate::ui::warning(&format!(
-                                "{} has no usable source start timestamps; only configured delay_ms is applied",
+                                "{} has no usable source start timestamps; only configured delay is applied",
                                 tp.id
                             ));
                         }
