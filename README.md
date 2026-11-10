@@ -173,7 +173,7 @@ Episode `01` inherits the other batch tracks and settings. `false` disables that
 
 Timing uses rational CFR FPS and centisecond-centered ASS frame boundaries, following Aegisub. SRT keeps milliseconds when no shift is applied; shifts use the same frame centering. If a shift would move either boundary before zero, both boundaries are set to zero and the line is retained. There is no out-of-bounds setting.
 
-`[subtitles.delete]` removes lines whose starting frame is in the specified half-open range **after shifting**. `[subtitles.add]` inserts complete ASS Dialogue lines or SRT blocks at their final timestamps. Operations run in the fixed order shift, delete, add. Each delete item is a string with the form `'start:end@episodes'`. Write an empty side to open the range: `'start:'` extends to the end and `':end'` covers the video start. Omit `@episodes` to apply the deletion to all episodes. `[subtitles.add]` keeps the table form:
+`[subtitles.delete]` removes lines whose starting frame is in the specified half-open range **after shifting**. `[subtitles.add]` inserts complete ASS Dialogue lines or SRT blocks at their final timestamps. Operations run in the fixed order shift, delete, add. Each delete item is a string with the form `'start:end@episodes'`. Write an empty side to open the range: `'start:'` extends to the end and `':end'` covers the video start. Omit `@episodes` to apply the deletion to all episodes. `[subtitles.add]` maps each ID to a string list; each element is a complete block. An optional first element of the form `'@episodes'` scopes the blocks to those episodes:
 
 ```toml
 [subtitles]
@@ -186,9 +186,7 @@ US = ['0: 24', '2374:18628 72@01', '20000: -24@01']
 US = ['50000:@01']
 
 [subtitles.add]
-US = [{ episodes = ['01'], lines = [
-  'Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Added line',
-] }]
+US = ['@01', 'Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Added line']
 ```
 
 Omitting `episodes` applies an item to all episodes. SRT additions take complete SRT blocks in multiline TOML strings. Additions are not shifted by earlier corrections. Added events are sorted by start time while preserving the relative order of equal times; SRT lines are renumbered.

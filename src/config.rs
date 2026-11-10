@@ -312,6 +312,49 @@ fn shift_correction(key: &str, ids: &BTreeSet<String>, value: &toml::Value) -> R
     Ok(ShiftTable { default, episodes })
 }
 
+// [subtitles.add] values accept a list of complete blocks as strings.
+// An optional first element of the form '@id,id2' scopes every block to
+// those episodes; without it the blocks apply to every episode.
+fn add_lines(key: &str, ids: &BTreeSet<String>, value: &toml::Value) -> Result<AddLines> {
+    let context = format!("Add {key}");
+    let raws: Vec<&str> = match value {
+        toml::Value::Array(entries) => entries
+            .iter()
+            .map(|entry| {
+                entry
+                    .as_str()
+                    .with_context(|| format!("{context} must contain strings, found {entry}"))
+            })
+            .collect::<Result<Vec<_>>>()?,
+        _ => bail!("{context} must be a list of lines"),
+    };
+    ensure!(!raws.is_empty(), "{context} has no lines");
+    let (episodes, blocks) = match raws[0].starts_with('@') {
+        true => {
+            let scope = raws[0];
+            let mut selected = Vec::new();
+            for id in scope[1..].split(',').map(str::trim) {
+                ensure!(
+                    !id.is_empty(),
+                    "{context}: '{scope}' has an empty episode ID"
+                );
+                ensure!(
+                    ids.contains(id),
+                    "{context} must reference episodes; found '{id}'"
+                );
+                selected.push(id.to_owned());
+            }
+            (selected, &raws[1..])
+        }
+        false => (Vec::new(), raws.as_slice()),
+    };
+    ensure!(!blocks.is_empty(), "{context} has no lines");
+    Ok(AddLines {
+        episodes,
+        lines: blocks.iter().map(|block| (*block).into()).collect(),
+    })
+}
+
 // [subtitles.delete] values accept 'start:end episodes' strings.
 // '@episodes' is a comma-separated list; without it the range applies to every episode.
 // An empty side is open: START alone starts at 0 and END alone runs to the end.
@@ -1182,7 +1225,7 @@ impl Config {
                     .iter_mut()
                     .find(|t| t.id == key)
                     .with_context(|| format!("Add references unknown subtitle {key}"))?;
-                track.additions = value.try_into()?;
+                track.additions = vec![add_lines(&key, &ids, &value)?];
             }
         }
         let mut pgs = Vec::new();

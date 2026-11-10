@@ -945,7 +945,7 @@ CR=['0: 24','2374:35004 -1@01',':100 2@01','5000: 7@01']
 [subtitles.delete]
 US=['72:96@01']
 [subtitles.add]
-CR=[{episodes=['01'],lines=['Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Added line']}]
+CR=['@01','Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Added line']
 [mux]
 'VideoTrack.01'={name='Main',language='ja-JP',default=true}
 'VideoTrack.02'={name='Alternate',language='ja-JP'}
@@ -996,8 +996,24 @@ CR={name='Crunchyroll',language='en-US'}
         input.replace("US=['72:96@01']", "US=['72 96']"),
         input.replace("US=['72:96@01']", "US=[':']"),
         input.replace(
-            "CR=[{episodes=['01'],lines=['Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Added line']}]",
-            "BAD=[{lines=['x']}]",
+            "CR=['@01','Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Added line']",
+            "BAD=['wideline']",
+        ),
+        input.replace(
+            "CR=['@01','Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Added line']",
+            "CR=['@99','Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Added line']",
+        ),
+        input.replace(
+            "CR=['@01','Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Added line']",
+            "CR=['@']",
+        ),
+        input.replace(
+            "CR=['@01','Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Added line']",
+            "CR=['@01']",
+        ),
+        input.replace(
+            "CR=['@01','Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Added line']",
+            "CR=[]",
         ),
         input.replace("US='us.ass'", "US={source='us.ass',patches=[]}"),
         input.replace(
