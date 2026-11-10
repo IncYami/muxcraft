@@ -169,7 +169,7 @@ Episode `01` inherits the other batch tracks and settings. `false` disables that
 
 ### Subtitle timing and edits
 
-`[subtitles.shift]` maps each subtitle ID to a frame count or a list of range strings. A batch-wide correction can use `default` and episode IDs as bare numeric keys, such as `US = { default = 24, 01 = 0 }`. `default` is optional; without it, the default shift is `0`. Each episode value is a number or range strings. A number replaces the default. Range strings inherit the default outside their ranges. In an episode config file, set the entry directly, such as `US = ['2374:18628 72']`, without nesting it under the episode ID. Each range string has the form `'START:END SHIFT'`. Omit `SHIFT` to use `0`. Leave a side empty to open the range: `START:` extends to the end and `:END` covers the video start. A lone number string is a whole-track shift. Shift ranges are half-open `[start, end)` and use the starting frame before correction. Overlapping range shifts add together. Unknown episode IDs are errors.
+`[subtitles.shift]` maps each subtitle ID to a frame count or a list of range strings. Each range string has the form `'START:END SHIFT@EPS'`; `@` starts a comma-separated episode list. Omit `@EPS` to apply the range to every episode. Omit `SHIFT` to use `0`. Leave a side empty to open the range: `START:` extends to the end and `:END` covers the video start. A bare number string is a whole-track shift. Shift ranges are half-open `[start, end)` and use the starting frame before correction. Overlapping range shifts add together. Unknown episode IDs are errors.
 
 Timing uses rational CFR FPS and centisecond-centered ASS frame boundaries, following Aegisub. SRT keeps milliseconds when no shift is applied; shifts use the same frame centering. If a shift would move either boundary before zero, both boundaries are set to zero and the line is retained. There is no out-of-bounds setting.
 
@@ -180,7 +180,7 @@ Timing uses rational CFR FPS and centisecond-centered ASS frame boundaries, foll
 US = '{raw}/US/{ep}.ass'
 
 [subtitles.shift]
-US = { default = 24, 01 = ['2374:18628 72', '20000: -24'] }
+US = ['0: 24', '2374:18628 72@01', '20000: -24@01']
 
 [subtitles.delete]
 US = ['50000:@01']

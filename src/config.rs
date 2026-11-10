@@ -243,35 +243,13 @@ impl Default for TruncateVideo {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
-#[serde(untagged)]
-enum SubtitleShift {
-    Frames(i64),
-    Single(String),
-    Multi(Vec<String>),
-    Table(toml::Table),
-}
-
-// [subtitles.shift] values accept a frame count or 'start:end frames' strings.
-// Range strings inherit the batch `default` shift outside their ranges (`baseline`).
-// A single nonnumeric token is a range and needs a colon or a shift.
-fn shift_correction(
-    key: &str,
-    episode: Option<&str>,
-    value: &toml::Value,
-    baseline: i64,
-) -> Result<Correction> {
-    let context = match episode {
-        Some(episode) => format!("Shift {key} for episode {episode}"),
-        None => format!("Shift {key} default"),
-    };
+// [subtitles.shift] values accept 'start:end@episodes' strings with one
+// range per list element. The text before '@' selects a comma-separated
+// episode list; without it the range applies to every episode. A bare
+// number string is a whole-track shift. Ranges add when they overlap.
+fn shift_correction(key: &str, ids: &BTreeSet<String>, value: &toml::Value) -> Result<ShiftTable> {
+    let context = format!("Shift {key}");
     let raws: Vec<&str> = match value {
-        toml::Value::Integer(frames) => {
-            return Ok(Correction {
-                shift: *frames,
-                ranges: Vec::new(),
-            });
-        }
         toml::Value::String(raw) => vec![raw.as_str()],
         toml::Value::Array(entries) => entries
             .iter()
@@ -281,25 +259,57 @@ fn shift_correction(
                     .with_context(|| format!("{context} must contain strings, found {entry}"))
             })
             .collect::<Result<Vec<_>>>()?,
-        _ => bail!("{context} must be a number or 'start:end frames' string(s)"),
+        _ => bail!("{context} must be a number or 'start:end@episodes' string(s)"),
     };
     ensure!(!raws.is_empty(), "{context} has no ranges");
-    let mut correction = Correction {
-        shift: baseline,
-        ranges: Vec::new(),
-    };
-    if let [raw] = raws.as_slice()
-        && let Ok(frames) = raw.trim().parse::<i64>()
-    {
-        correction.shift = frames;
-        correction.ranges.clear();
-        return Ok(correction);
+    let mut defaults: Vec<Range> = Vec::new();
+    let mut scoped: BTreeMap<String, Vec<Range>> = BTreeMap::new();
+    for raw in raws {
+        let (head, list) = raw
+            .split_once('@')
+            .map_or((raw, None), |(head, list)| (head, Some(list)));
+        let range = match head.trim().parse::<i64>() {
+            Ok(frames) => Range {
+                start: 0,
+                end: None,
+                shift: frames,
+            },
+            Err(_) => parse_shift_range(&context, head)?,
+        };
+        let Some(list) = list else {
+            defaults.push(range);
+            continue;
+        };
+        let mut selected = Vec::new();
+        for id in list.split(',').map(str::trim) {
+            ensure!(!id.is_empty(), "{context}: '{raw}' has an empty episode ID");
+            ensure!(
+                ids.contains(id),
+                "{context} must reference episodes; found '{id}'"
+            );
+            selected.push(id.to_owned());
+        }
+        for id in selected {
+            scoped.entry(id).or_default().push(range.clone());
+        }
     }
-    correction.ranges = raws
-        .iter()
-        .map(|raw| parse_shift_range(&context, raw))
-        .collect::<Result<Vec<_>>>()?;
-    Ok(correction)
+    let default = Correction {
+        shift: 0,
+        ranges: defaults,
+    };
+    let mut episodes = BTreeMap::new();
+    for (id, ranges) in scoped {
+        let mut all = default.ranges.clone();
+        all.extend(ranges);
+        episodes.insert(
+            id,
+            Correction {
+                shift: 0,
+                ranges: all,
+            },
+        );
+    }
+    Ok(ShiftTable { default, episodes })
 }
 
 // [subtitles.delete] values accept 'start:end episodes' strings.
@@ -473,7 +483,7 @@ fn parse_shift_range(context: &str, raw: &str) -> Result<Range> {
         }
         _ => bail!("{context}: '{raw}' has extra text"),
     };
-    let (start, end) = range_bounds(&context, raw, head)?;
+    let (start, end) = range_bounds(context, raw, head)?;
     Ok(Range { start, end, shift })
 }
 #[derive(Debug, Deserialize)]
@@ -1152,46 +1162,12 @@ impl Config {
                     .iter_mut()
                     .find(|t| t.id == key)
                     .with_context(|| format!("Shift references unknown subtitle {key}"))?;
-                match value.try_into::<SubtitleShift>()? {
-                    SubtitleShift::Frames(frames) => track.shift_frames = frames,
-                    SubtitleShift::Single(raw) => {
-                        let value = toml::Value::Array(vec![toml::Value::String(raw)]);
-                        track.shift_table = Some(ShiftTable {
-                            default: shift_correction(&key, None, &value, 0)?,
-                            episodes: BTreeMap::new(),
-                        });
+                match &value {
+                    toml::Value::Integer(frames) => track.shift_frames = *frames,
+                    toml::Value::Table(_) => {
+                        bail!("Shift {key} must be a number or 'start:end@episodes' string(s)")
                     }
-                    SubtitleShift::Multi(raws) => {
-                        let value =
-                            toml::Value::Array(raws.into_iter().map(toml::Value::String).collect());
-                        track.shift_table = Some(ShiftTable {
-                            default: shift_correction(&key, None, &value, 0)?,
-                            episodes: BTreeMap::new(),
-                        });
-                    }
-                    SubtitleShift::Table(mut table) => {
-                        let default = match table.remove("default") {
-                            Some(value) => shift_correction(&key, None, &value, 0)?,
-                            None => Correction::default(),
-                        };
-                        let episodes = table
-                            .into_iter()
-                            .map(|(episode, value)| {
-                                ensure!(
-                                    ids.contains(&episode),
-                                    "Shift {key} keys must reference episodes; found '{episode}'"
-                                );
-                                let correction = shift_correction(
-                                    &key,
-                                    Some(episode.as_str()),
-                                    &value,
-                                    default.shift,
-                                )?;
-                                Ok((episode, correction))
-                            })
-                            .collect::<Result<BTreeMap<_, _>>>()?;
-                        track.shift_table = Some(ShiftTable { default, episodes });
-                    }
+                    value => track.shift_table = Some(shift_correction(&key, &ids, value)?),
                 }
             }
             for (key, value) in delete_entries {

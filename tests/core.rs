@@ -147,7 +147,7 @@ CR12 = 'cr12.ass'
 [pgs]
 PGS = 'subtitle.sup'
 [subtitles.shift]
-US = { default = 2 }
+US = ['0: 2']
 [mux]
 'VideoTrack.01' = { name = 'Video', language = 'ja' }
 'VideoTrack.02' = { name = 'Video 2', language = 'ja' }
@@ -940,8 +940,8 @@ CR='cr.ass'
 clean-garbage=true
 ycbcr-matrix='auto'
 [subtitles.shift]
-US={default=48,'01'=['2374: 72']}
-CR={default=24,'01'=['2374:35004 -1',':100 2','5000: 7']}
+US=['0: 48','2374: 72@01']
+CR=['0: 24','2374:35004 -1@01',':100 2@01','5000: 7@01']
 [subtitles.delete]
 US=['72:96@01']
 [subtitles.add]
@@ -977,12 +977,14 @@ CR={name='Crunchyroll',language='en-US'}
     assert_eq!(plan[0].tracks[2].language, "en-US");
     let us = cfg.subtitles[0].shift_table.as_ref().unwrap();
     let cr = cfg.subtitles[1].shift_table.as_ref().unwrap();
-    assert_eq!(us.episodes["01"].shift, 48);
-    assert_eq!(us.episodes["01"].ranges[0].shift, 72);
-    assert_eq!(cr.episodes["01"].ranges[0].shift, -1);
-    assert_eq!(cr.episodes["01"].ranges[1].start, 0);
-    assert_eq!(cr.episodes["01"].ranges[1].end, Some(100));
-    assert_eq!(cr.episodes["01"].ranges[2].end, None);
+    assert_eq!(us.episodes["01"].ranges[0].shift, 48);
+    assert_eq!(us.episodes["01"].ranges[1].shift, 72);
+    assert_eq!(us.default.ranges[0].shift, 48);
+    assert_eq!(cr.episodes["01"].ranges[0].shift, 24);
+    assert_eq!(cr.episodes["01"].ranges[1].shift, -1);
+    assert_eq!(cr.episodes["01"].ranges[2].start, 0);
+    assert_eq!(cr.episodes["01"].ranges[2].end, Some(100));
+    assert_eq!(cr.episodes["01"].ranges[3].end, None);
     assert_eq!(cfg.subtitles[0].deletes[0].start, 72);
     assert_eq!(cfg.subtitles[0].deletes[0].episodes, ["01"]);
     assert_eq!(cfg.subtitles[1].additions[0].lines.len(), 1);
@@ -999,35 +1001,39 @@ CR={name='Crunchyroll',language='en-US'}
         ),
         input.replace("US='us.ass'", "US={source='us.ass',patches=[]}"),
         input.replace(
-            "US={default=48,'01'=['2374: 72']}",
+            "US=['0: 48','2374: 72@01']",
             "US={default={frames=24,delete=[{start=72}]},'01'=48}",
         ),
         input.replace(
-            "US={default=48,'01'=['2374: 72']}",
+            "US=['0: 48','2374: 72@01']",
             "US={default=48,out_of_bounds='drop_line','01'=48}",
         ),
         input.replace(
-            "CR={default=24,'01'=['2374:35004 -1',':100 2','5000: 7']}",
+            "CR=['0: 24','2374:35004 -1@01',':100 2@01','5000: 7@01']",
             "CR='US'",
         ),
         input.replace(
-            "CR={default=24,'01'=['2374:35004 -1',':100 2','5000: 7']}",
-            "CR={default=24,'99'=48}",
+            "CR=['0: 24','2374:35004 -1@01',':100 2@01','5000: 7@01']",
+            "CR=['0: 24@99']",
         ),
         input.replace(
-            "CR={default=24,'01'=['2374:35004 -1',':100 2','5000: 7']}",
+            "CR=['0: 24','2374:35004 -1@01',':100 2@01','5000: 7@01']",
+            "CR=['0: 24@']",
+        ),
+        input.replace(
+            "CR=['0: 24','2374:35004 -1@01',':100 2@01','5000: 7@01']",
             "CR=['14 -1 x']",
         ),
         input.replace(
-            "CR={default=24,'01'=['2374:35004 -1',':100 2','5000: 7']}",
+            "CR=['0: 24','2374:35004 -1@01',':100 2@01','5000: 7@01']",
             "CR=['2374 72']",
         ),
         input.replace(
-            "CR={default=24,'01'=['2374:35004 -1',':100 2','5000: 7']}",
+            "CR=['0: 24','2374:35004 -1@01',':100 2@01','5000: 7@01']",
             "CR='14:2:3'",
         ),
         input.replace(
-            "CR={default=24,'01'=['2374:35004 -1',':100 2','5000: 7']}",
+            "CR=['0: 24','2374:35004 -1@01',':100 2@01','5000: 7@01']",
             "CR=[]",
         ),
         input.replace("'VideoTrack.02'={name='Alternate',language='ja-JP'}\n", ""),
