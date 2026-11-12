@@ -28,6 +28,10 @@ rustPlatform.buildRustPackage {
   cargoLock.lockFile = ./Cargo.lock;
 
   nativeBuildInputs = [ makeWrapper ];
+  # nixpkgs 26.11 forces system libraries for some crates through
+  # `cargoUseSystemLibs`. aws-lc-sys then needs a system AWS-LC that no
+  # dependency provides. Keep building aws-lc-sys from source instead.
+  dontCargoUseSystemLibs = true;
   nativeCheckInputs = [ ffmpeg flac mkvtoolnix ];
   SSL_CERT_FILE = "${cacert}/etc/ssl/certs/ca-bundle.crt";
 
