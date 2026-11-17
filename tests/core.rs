@@ -926,6 +926,12 @@ attachments=true
 global-tags=true
 chapters=true
 colour={range=1,primaries=1,transfer=1,matrix=1}
+chromaticity-coordinates=[0.68,0.32,0.265,0.69,0.15,0.06]
+white-colour-coordinates=[0.3127,0.329]
+max-luminance=1000
+min-luminance=0.001
+max-content-light=97
+max-frame-light=55
 [VideoTrack.02]
 source='alternate.mkv'
 track=1
@@ -973,6 +979,22 @@ CR={name='Crunchyroll',language='en-US'}
     assert!(cfg.video[0].global_tags && cfg.video[0].chapters);
     assert!(!cfg.video[1].global_tags && !cfg.video[1].chapters);
     assert_eq!(cfg.video[0].colour.as_ref().unwrap().matrix, Some(1));
+    let hdr = cfg.video[0].hdr.as_ref().unwrap();
+    assert_eq!(
+        hdr.chromaticity_coordinates,
+        [0.68, 0.32, 0.265, 0.69, 0.15, 0.06]
+    );
+    assert_eq!(hdr.white_colour_coordinates, [0.3127, 0.329]);
+    assert_eq!(
+        [
+            hdr.max_luminance,
+            hdr.min_luminance,
+            hdr.max_content_light,
+            hdr.max_frame_light
+        ],
+        [Some(1000.0), Some(0.001), Some(97.0), Some(55.0)]
+    );
+    assert_eq!(cfg.video[1].hdr, None);
     assert_eq!(plan[0].tracks[1].name, "Alternate");
     assert_eq!(plan[0].tracks[2].language, "en-US");
     let us = cfg.subtitles[0].shift_table.as_ref().unwrap();
@@ -1076,6 +1098,21 @@ CR={name='Crunchyroll',language='en-US'}
             "track=0\naudio=true",
             "track=0\naudio=true\nargs=['--colour-range','0:1']",
         ),
+        input.replace(
+            "max-luminance=1000",
+            "max-luminance=1000\nargs=['--max-luminance','0:500']",
+        ),
+        input.replace(
+            "chromaticity-coordinates=[0.68,0.32,0.265,0.69,0.15,0.06]",
+            "chromaticity-coordinates=[0.68,0.32]",
+        ),
+        input.replace(
+            "white-colour-coordinates=[0.3127,0.329]",
+            "white-colour-coordinates=[0.3127,0.329,1]",
+        ),
+        input.replace("min-luminance=0.001", "min-luminance=0"),
+        input.replace("max-frame-light=55", "max-frame-light=-55"),
+        input.replace("codec='copy'", "codec='copy'\nmax-luminance=1000"),
         format!("{input}\n[styles.LATO]\nFontname='Lato'\n"),
     ] {
         std::fs::write(&path, invalid).unwrap();

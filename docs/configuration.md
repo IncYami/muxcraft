@@ -42,6 +42,7 @@ Every video and audio source has an ID formed from the table suffix, such as `Vi
 | `audio`, `subtitles`, `attachments` | boolean | `false` | Video track only: include all source tracks or attachments of that kind. |
 | `global-tags`, `chapters` | boolean | `false` | Video track only: retain source global tags or embedded chapters. |
 | `colour` | table | absent | Video metadata fields `range`, `primaries`, `transfer`, `matrix` are optional numeric MKVToolNix codes; at least one must be set. `range` is 0–3. A given field cannot also be supplied in `args`. |
+| HDR fields | number lists or numbers | absent | Video track only: `chromaticity-coordinates` (six numbers), `white-colour-coordinates` (two numbers), `max-luminance`, `min-luminance`, `max-content-light`, `max-frame-light` (positive numbers). Field names match the mkvmerge arguments. Each field writes its argument with the track ID set. A set field cannot also be supplied in `args`. |
 | `codec` | string | required for audio | `flac` (encode) or `copy` (read the selected track directly from its container). |
 | `args` | string array | `[]` | Per-track mkvmerge arguments, one item per argument. For PGS, applied to the muxed track. |
 | `only`, `except` | string array | `[]` | Video, audio, and PGS only: enable only the listed episodes, or enable all except listed episodes. IDs must exist. |

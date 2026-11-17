@@ -1740,6 +1740,31 @@ fn options(
             }
         }
     }
+    if let Some(hdr) = &t.hdr {
+        for (flag, values) in [
+            ("--chromaticity-coordinates", &hdr.chromaticity_coordinates),
+            ("--white-colour-coordinates", &hdr.white_colour_coordinates),
+        ] {
+            if !values.is_empty() {
+                let coords = values
+                    .iter()
+                    .map(f64::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",");
+                args.extend([flag.into(), format!("{id}:{coords}")]);
+            }
+        }
+        for (flag, value) in [
+            ("--max-luminance", hdr.max_luminance),
+            ("--min-luminance", hdr.min_luminance),
+            ("--max-content-light", hdr.max_content_light),
+            ("--max-frame-light", hdr.max_frame_light),
+        ] {
+            if let Some(value) = value {
+                args.extend([flag.into(), format!("{id}:{value}")]);
+            }
+        }
+    }
     Ok(())
 }
 fn add_input(

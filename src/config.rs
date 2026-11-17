@@ -117,6 +117,18 @@ struct RawVideo {
     #[serde(default)]
     chapters: bool,
     colour: Option<VideoColour>,
+    #[serde(default, rename = "chromaticity-coordinates")]
+    chromaticity_coordinates: Option<Vec<f64>>,
+    #[serde(default, rename = "white-colour-coordinates")]
+    white_colour_coordinates: Option<Vec<f64>>,
+    #[serde(default, rename = "max-luminance")]
+    max_luminance: Option<f64>,
+    #[serde(default, rename = "min-luminance")]
+    min_luminance: Option<f64>,
+    #[serde(default, rename = "max-content-light")]
+    max_content_light: Option<f64>,
+    #[serde(default, rename = "max-frame-light")]
+    max_frame_light: Option<f64>,
     #[serde(default)]
     args: Vec<String>,
     #[serde(default)]
@@ -161,6 +173,32 @@ pub struct VideoColour {
     pub matrix: Option<u8>,
 }
 
+// HDR metadata fields of a video track. Field names match the mkvmerge
+// arguments without the leading dashes. The coordinate lists hold CIE
+// 1931 xy values; the rest are luminance values in cd/m².
+#[derive(Debug, Deserialize, Serialize, Clone, Default, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Hdr {
+    #[serde(
+        rename = "chromaticity-coordinates",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub chromaticity_coordinates: Vec<f64>,
+    #[serde(
+        rename = "white-colour-coordinates",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub white_colour_coordinates: Vec<f64>,
+    #[serde(rename = "max-luminance", skip_serializing_if = "Option::is_none")]
+    pub max_luminance: Option<f64>,
+    #[serde(rename = "min-luminance", skip_serializing_if = "Option::is_none")]
+    pub min_luminance: Option<f64>,
+    #[serde(rename = "max-content-light", skip_serializing_if = "Option::is_none")]
+    pub max_content_light: Option<f64>,
+    #[serde(rename = "max-frame-light", skip_serializing_if = "Option::is_none")]
+    pub max_frame_light: Option<f64>,
+}
+
 impl RawVideo {
     fn into_track(self, id: String) -> Track {
         let mut track = Track::new(id, self.source);
@@ -171,6 +209,21 @@ impl RawVideo {
         track.global_tags = self.global_tags;
         track.chapters = self.chapters;
         track.colour = self.colour;
+        let hdr = Hdr {
+            chromaticity_coordinates: self.chromaticity_coordinates.unwrap_or_default(),
+            white_colour_coordinates: self.white_colour_coordinates.unwrap_or_default(),
+            max_luminance: self.max_luminance,
+            min_luminance: self.min_luminance,
+            max_content_light: self.max_content_light,
+            max_frame_light: self.max_frame_light,
+        };
+        track.hdr = (!hdr.chromaticity_coordinates.is_empty()
+            || !hdr.white_colour_coordinates.is_empty()
+            || hdr.max_luminance.is_some()
+            || hdr.min_luminance.is_some()
+            || hdr.max_content_light.is_some()
+            || hdr.max_frame_light.is_some())
+        .then_some(hdr);
         track.args = self.args;
         track.only = self.only;
         track.except = self.except;
@@ -683,6 +736,8 @@ pub struct Track {
     #[serde(default)]
     pub chapters: bool,
     pub colour: Option<VideoColour>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hdr: Option<Hdr>,
     #[serde(default)]
     pub name: String,
     #[serde(default)]
@@ -728,6 +783,7 @@ impl Track {
             global_tags: false,
             chapters: false,
             colour: None,
+            hdr: None,
             name: String::new(),
             language: String::new(),
             default: false,
@@ -1420,6 +1476,58 @@ impl Config {
                     ensure!(
                         field.is_none() || !t.args.iter().any(|arg| arg == flag),
                         "{} sets {flag} in both colour and args",
+                        t.id
+                    );
+                }
+            }
+            if let Some(hdr) = &t.hdr {
+                ensure!(
+                    hdr.chromaticity_coordinates.len() == 6
+                        && hdr
+                            .chromaticity_coordinates
+                            .iter()
+                            .all(|value| value.is_finite()),
+                    "{} chromaticity-coordinates needs six finite values",
+                    t.id
+                );
+                ensure!(
+                    hdr.white_colour_coordinates.len() == 2
+                        && hdr
+                            .white_colour_coordinates
+                            .iter()
+                            .all(|value| value.is_finite()),
+                    "{} white-colour-coordinates needs two finite values",
+                    t.id
+                );
+                for (field, value) in [
+                    ("max-luminance", hdr.max_luminance),
+                    ("min-luminance", hdr.min_luminance),
+                    ("max-content-light", hdr.max_content_light),
+                    ("max-frame-light", hdr.max_frame_light),
+                ] {
+                    ensure!(
+                        value.is_none_or(|value| value.is_finite() && value > 0.0),
+                        "{} has an invalid {field}",
+                        t.id
+                    );
+                }
+                for (field, set) in [
+                    (
+                        "chromaticity-coordinates",
+                        !hdr.chromaticity_coordinates.is_empty(),
+                    ),
+                    (
+                        "white-colour-coordinates",
+                        !hdr.white_colour_coordinates.is_empty(),
+                    ),
+                    ("max-luminance", hdr.max_luminance.is_some()),
+                    ("min-luminance", hdr.min_luminance.is_some()),
+                    ("max-content-light", hdr.max_content_light.is_some()),
+                    ("max-frame-light", hdr.max_frame_light.is_some()),
+                ] {
+                    ensure!(
+                        !set || !t.args.iter().any(|arg| *arg == format!("--{field}")),
+                        "{} sets {field} twice",
                         t.id
                     );
                 }
